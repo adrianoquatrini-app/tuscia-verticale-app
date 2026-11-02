@@ -619,7 +619,7 @@ def render_card(titolo, info, unit="kg"):
         return html
     return None
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Record & Best", "💪 Laboratorio Forza", "🔬 Laboratorio Endurance", "📈 Storico Analitico", "🧬 Analisi Avanzata"])
+tab1, tab4, tab5 = st.tabs(["🏆 Record & Best", "📈 Storico Analitico", "🧬 Analisi Avanzata"])
 
 with tab1:
     st.markdown("### 🥇 I Tuoi Record Personali (All-Time)")
@@ -721,7 +721,7 @@ if os.path.exists(cartella):
                     if '30s' in file.lower() or '7-3' in file.lower() or 'cf' in file.lower(): file_endurance[chiave_tendina] = percorso_completo
                     else: file_forza[chiave_tendina] = percorso_completo
 
-with tab2:
+if False:
     st.markdown("### 💪 Laboratorio Forza (Curve Isometria & RFD)")
     st.markdown("<div class='coach-tip'><b>💡 Pillola Biomeccanica:</b> Una linea che sale molto ripida nei primissimi decimi di secondo indica un eccellente <i>Tasso di Sviluppo della Forza (RFD)</i>. Questa è la famosa 'forza di contatto' che ti permette di tenere le prese in modo dinamico. Una curva tremolante in cima, invece, evidenzia una scarsa stiffness (rigidità) tendinea.</div>", unsafe_allow_html=True)
     
@@ -773,7 +773,7 @@ with tab2:
                 st.info("ℹ️ Dati curva non disponibili (N/D).")
     else: st.warning("Nessun test di Forza Specifica trovato nel tuo archivio.")
 
-with tab3:
+if False:
     st.markdown("### 🔬 Laboratorio Endurance (Sistemi Energetici)")
     st.markdown("<div class='coach-tip'><b>💡 Fisiologia dell'Arrampicata:</b> Nel test <b>7:3 (Critical Force)</b> cerchiamo il <i>plateau metabolico</i>: la forza media che riesci a mantenere nell'ultimo blocco di ripetizioni. Nel test <b>30s</b>, un crollo repentino della forza (box rossi) indica una scarsa capillarizzazione: il muscolo si acidifica velocemente e le cellule non riescono a smaltire le scorie.</div>", unsafe_allow_html=True)
     
