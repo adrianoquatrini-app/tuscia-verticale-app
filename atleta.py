@@ -15,6 +15,7 @@ def prepara_df_visualizzazione(df_in):
     return df_out
 
 FILE_MASTER = "Db_atleti_master.xlsx"
+FILE_CREDENZIALI = "credenziali.csv"
 CARTELLA_ARCHIVIO = "Archivio_CSV"
 
 TESTI_FISIOLOGIA = {
@@ -302,14 +303,36 @@ df = carica_database(FILE_MASTER)
 atleti_lista = sorted(df['Atleta'].dropna().unique().tolist())
 
 # ==============================================================================
-# 1. GATEKEEPER: LOGIN PROTETTO (COACH vs ATLETA)
+# 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI.CSV & PRIVACY ATLETA
 # ==============================================================================
+def carica_o_crea_credenziali(percorso=FILE_CREDENZIALI):
+    if not os.path.exists(percorso):
+        df_default = pd.DataFrame([
+            {"username": "admin", "password": "admin", "nome_atleta_esatto": "TUTTI"}
+        ])
+        try:
+            df_default.to_csv(percorso, index=False, encoding="utf-8")
+        except Exception:
+            pass
+        return df_default
+    try:
+        df_c = pd.read_csv(percorso, dtype=str).fillna("")
+        df_c.columns = [c.strip() for c in df_c.columns]
+        for col in ['username', 'password', 'nome_atleta_esatto']:
+            if col not in df_c.columns:
+                df_c[col] = ""
+        return df_c
+    except Exception:
+        return pd.DataFrame([{"username": "admin", "password": "admin", "nome_atleta_esatto": "TUTTI"}])
+
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.ruolo = None
     st.session_state.nome_utente = None
+    st.session_state.nome_atleta_esatto = None
 
 if not st.session_state.logged_in:
+    df_credenziali = carica_o_crea_credenziali(FILE_CREDENZIALI)
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         st.markdown("<div style='text-align: center; margin-top: 2.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
@@ -319,46 +342,49 @@ if not st.session_state.logged_in:
         
         with st.form("login_form", clear_on_submit=False):
             st.markdown("#### 🔐 Accesso Riservato")
-            user_input = st.text_input("Nome Utente:", placeholder="es. NOME COGNOME oppure admin").strip()
+            user_input = st.text_input("Username:", placeholder="Inserisci il tuo username").strip()
             pass_input = st.text_input("Password:", type="password", placeholder="Inserisci la password").strip()
             btn_accedi = st.form_submit_button("Accedi alla Vetrina", type="primary", use_container_width=True)
             
             if btn_accedi:
-                user_upper = user_input.upper()
-                if user_input.lower() == "admin" and pass_input == "coach2026":
+                match_riga = None
+                for _, row in df_credenziali.iterrows():
+                    u_csv = str(row['username']).strip()
+                    p_csv = str(row['password']).strip()
+                    if u_csv.lower() == user_input.lower() and p_csv == pass_input:
+                        match_riga = row
+                        break
+                        
+                if match_riga is not None:
+                    atleta_target = str(match_riga['nome_atleta_esatto']).strip()
+                    u_clean = str(match_riga['username']).strip()
                     st.session_state.logged_in = True
-                    st.session_state.ruolo = "Coach"
-                    st.session_state.nome_utente = "Coach / Staff"
-                    st.rerun()
-                elif pass_input == "climber2026":
-                    match_atleta = next((a for a in atleti_lista if a.strip().upper() == user_upper), None)
-                    if match_atleta:
-                        st.session_state.logged_in = True
-                        st.session_state.ruolo = "Atleta"
-                        st.session_state.nome_utente = match_atleta
-                        st.rerun()
+                    st.session_state.nome_atleta_esatto = atleta_target
+                    if u_clean.lower() == "admin" or atleta_target.upper() == "TUTTI":
+                        st.session_state.ruolo = "Admin"
+                        st.session_state.nome_utente = u_clean
                     else:
-                        st.error("Nome atleta non trovato nell'anagrafica. Verifica di aver digitato NOME e COGNOME.")
+                        st.session_state.ruolo = "Atleta"
+                        st.session_state.nome_utente = atleta_target
+                    st.rerun()
                 else:
                     st.error("Credenziali non corrette. Riprova.")
-        
-        st.info("💡 **Credenziali di prova:**\n- Coach: `admin` / `coach2026`\n- Atleta: `NOME COGNOME` (es. `ADRIANO QUATRINI`) / `climber2026`")
         st.stop()
 
 # ==============================================================================
-# 2. INTESTAZIONE & SELEZIONE ATLETA (Sola Lettura)
+# 2. INTESTAZIONE & VINCOLO SESSIONE ATLETA (Sola Lettura)
 # ==============================================================================
 col_top_h, col_top_out = st.columns([3, 1])
 with col_top_h:
-    if st.session_state.ruolo == "Coach":
-        st.title("🧗 Vetrina Atleta — Staff Coach")
+    if st.session_state.ruolo == "Admin" or str(st.session_state.nome_atleta_esatto).upper() == "TUTTI":
+        st.title("🧗 Vetrina Atleta — Vista Admin")
         col_sel_at, col_sz = st.columns([2, 1])
         with col_sel_at:
             atleta_selezionato = st.selectbox("👤 Seleziona Profilo Atleta:", atleti_lista, key="sel_coach_atleta")
         with col_sz:
             dim_grafico = st.radio("📏 Dimensione Grafici:", ["Compatta (Piccola)", "Standard (Grande)"], horizontal=True, key="sel_dim_grafico")
     else:
-        atleta_selezionato = st.session_state.nome_utente
+        atleta_selezionato = st.session_state.nome_atleta_esatto
         st.title(f"🧗 Vetrina Atleta — {atleta_selezionato}")
         dim_grafico = "Standard (Grande)"
 
@@ -369,6 +395,7 @@ with col_top_out:
         st.session_state.logged_in = False
         st.session_state.ruolo = None
         st.session_state.nome_utente = None
+        st.session_state.nome_atleta_esatto = None
         st.rerun()
 
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
