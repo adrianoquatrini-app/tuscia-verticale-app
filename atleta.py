@@ -22,8 +22,18 @@ def carica_dati_cloud():
     id_db = st.secrets["link_database"].split("/d/")[1].split("/")[0]
     id_cred = st.secrets["link_credenziali"].split("/d/")[1].split("/")[0]
     
-    df_atleti = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_db}/export?format=csv")
+    # Il parametro decimal="," aiuta con il formato italiano
+    df_atleti = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_db}/export?format=csv", decimal=",")
     credenziali = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_cred}/export?format=csv")
+    
+    # FILTRO GLOBALE: forza tutte le metriche di test a tornare numeri (come faceva Excel)
+    for col in df_atleti.columns:
+        # Escludiamo solo le vere colonne di testo
+        if col not in ['Data', 'DataStr', 'Atleta', 'Gruppo']:
+            if df_atleti[col].dtype == 'object':
+                # Sostituisce virgole sfuggite e forza a numerico (i testi non validi diventano NaN per i grafici)
+                df_atleti[col] = pd.to_numeric(df_atleti[col].astype(str).str.replace(',', '.'), errors='coerce')
+                
     return df_atleti, credenziali
 
 TESTI_FISIOLOGIA = {
