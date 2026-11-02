@@ -598,9 +598,13 @@ def render_card(titolo, info, unit="kg"):
     if info["valore"] > 0:
         html = f'<div class="metric-card"><div class="metric-title">{titolo}</div>'
         html += f'<div class="metric-value">{info["valore"]:.1f} <span class="metric-unit">{unit}</span></div>'
-        if info["bw"] > 0 and unit == "kg":
-            perc = (info["valore"] / info["bw"]) * 100
+        
+        # Conversione sicura per evitare TypeError se 'bw' è una stringa o vuoto
+        bw_val = pd.to_numeric(info["bw"], errors='coerce')
+        if pd.notna(bw_val) and bw_val > 0 and unit == "kg":
+            perc = (info["valore"] / bw_val) * 100
             html += f'<span class="metric-bw">{perc:.1f}% BW</span>'
+            
         html += f'<div class="metric-sub">Lato: {info["lato"]} | Data: <b>{info["data"]}</b></div></div>'
         return html
     return None
