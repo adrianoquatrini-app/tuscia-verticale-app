@@ -14,9 +14,17 @@ def prepara_df_visualizzazione(df_in):
             df_out[col] = df_out[col].apply(lambda x: "" if pd.isna(x) else str(x).strip())
     return df_out
 
-FILE_MASTER = "Db_atleti_master.xlsx"
-FILE_CREDENZIALI = "credenziali.csv"
 CARTELLA_ARCHIVIO = "Archivio_CSV"
+
+# --- CONNESSIONE CLOUD SICURA ---
+@st.cache_data(ttl=60)
+def carica_dati_cloud():
+    id_db = st.secrets["link_database"].split("/d/")[1].split("/")[0]
+    id_cred = st.secrets["link_credenziali"].split("/d/")[1].split("/")[0]
+    
+    df_atleti = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_db}/export?format=csv")
+    credenziali = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_cred}/export?format=csv")
+    return df_atleti, credenziali
 
 TESTI_FISIOLOGIA = {
     "Panca": "Maximum Strength Testing (Slow Speed Strength)\nMigliorare la tua forza massima aumenta il potenziale di impulso complessivo...",
@@ -260,21 +268,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-if not os.path.exists(FILE_MASTER):
-    st.error("Nessun database trovato. Accedere prima lato Coach.")
-    st.stop()
-
-@st.cache_data
-def carica_database(percorso=FILE_MASTER):
-    if not os.path.exists(percorso):
-        return pd.DataFrame(columns=['Data', 'Atleta', 'Gruppo', 'Peso Corporeo'])
-    try:
-        df_load = pd.read_excel(percorso)
-        df_load['Data_dt'] = pd.to_datetime(df_load['Data'], format='%Y-%m-%d', errors='coerce')
-        return df_load
-    except Exception:
-        return pd.DataFrame(columns=['Data', 'Atleta', 'Gruppo', 'Peso Corporeo'])
-
 @st.cache_data
 def leggi_curva_csv(file_sel):
     try:
@@ -299,32 +292,15 @@ def leggi_curva_csv(file_sel):
     except Exception:
         return None, None, "Dati non disponibili (N/D)"
 
-df = carica_database(FILE_MASTER)
-atleti_lista = sorted(df['Atleta'].dropna().unique().tolist())
+df, credenziali = carica_dati_cloud()
+if 'Data_dt' not in df.columns and 'Data' in df.columns:
+    df['Data_dt'] = pd.to_datetime(df['Data'], errors='coerce')
+
+atleti_lista = sorted(df['Atleta'].dropna().unique().tolist()) if 'Atleta' in df.columns else []
 
 # ==============================================================================
-# 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI.CSV & PRIVACY ATLETA
+# 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI CLOUD & PRIVACY ATLETA
 # ==============================================================================
-def carica_o_crea_credenziali(percorso=FILE_CREDENZIALI):
-    if not os.path.exists(percorso):
-        df_default = pd.DataFrame([
-            {"username": "admin", "password": "admin", "nome_atleta_esatto": "TUTTI"}
-        ])
-        try:
-            df_default.to_csv(percorso, index=False, encoding="utf-8")
-        except Exception:
-            pass
-        return df_default
-    try:
-        df_c = pd.read_csv(percorso, dtype=str).fillna("")
-        df_c.columns = [c.strip() for c in df_c.columns]
-        for col in ['username', 'password', 'nome_atleta_esatto']:
-            if col not in df_c.columns:
-                df_c[col] = ""
-        return df_c
-    except Exception:
-        return pd.DataFrame([{"username": "admin", "password": "admin", "nome_atleta_esatto": "TUTTI"}])
-
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.ruolo = None
@@ -332,7 +308,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.nome_atleta_esatto = None
 
 if not st.session_state.logged_in:
-    df_credenziali = carica_o_crea_credenziali(FILE_CREDENZIALI)
+    df_credenziali = credenziali.copy()
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         st.markdown("<div style='text-align: center; margin-top: 2.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
