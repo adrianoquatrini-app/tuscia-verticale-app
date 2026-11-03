@@ -17,7 +17,7 @@ def prepara_df_visualizzazione(df_in):
 CARTELLA_ARCHIVIO = "Archivio_CSV"
 
 # --- CONNESSIONE CLOUD SICURA ---
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=43200)
 def carica_dati_cloud():
     id_db = st.secrets["link_database"].split("/d/")[1].split("/")[0]
     id_cred = st.secrets["link_credenziali"].split("/d/")[1].split("/")[0]
@@ -363,6 +363,96 @@ if 'Data_dt' not in df.columns and 'Data' in df.columns:
 
 atleti_lista = sorted(df['Atleta'].dropna().unique().tolist()) if 'Atleta' in df.columns else []
 
+def calcola_macro_kpi_storici(df_atleta_in):
+    """
+    Calcola l'ultimo valore valido e il delta (differenza in kg) rispetto alla
+    penultima seduta valida per le 4 macro-categorie biomeccaniche.
+    """
+    df_sort = df_atleta_in.sort_values(by='Data_dt').copy() if 'Data_dt' in df_atleta_in.columns else df_atleta_in.copy()
+    
+    # 1. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
+    serie_1rm = []
+    for _, row in df_sort.iterrows():
+        v = None
+        for col in ['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale']:
+            if col in row and pd.notna(row[col]):
+                num = pd.to_numeric(str(row[col]).replace(',', '.'), errors='coerce')
+                if pd.notna(num) and num > 0:
+                    v = float(num)
+                    break
+        if v is not None:
+            serie_1rm.append((v, str(row.get('Data', ''))))
+            
+    val_1rm, delta_1rm, dt_1rm = None, None, None
+    if serie_1rm:
+        val_1rm, dt_1rm = serie_1rm[-1]
+        if len(serie_1rm) > 1:
+            delta_1rm = val_1rm - serie_1rm[-2][0]
+
+    # 2. Forza Dita Concentrica (max DX/SX per seduta valida)
+    serie_conc = []
+    for _, row in df_sort.iterrows():
+        v_dx = pd.to_numeric(str(row.get('Concentrica DX', '')).replace(',', '.'), errors='coerce')
+        v_sx = pd.to_numeric(str(row.get('Concentrica SX', '')).replace(',', '.'), errors='coerce')
+        ndx = float(v_dx) if pd.notna(v_dx) and v_dx > 0 else 0.0
+        nsx = float(v_sx) if pd.notna(v_sx) and v_sx > 0 else 0.0
+        if ndx > 0 or nsx > 0:
+            m = max(ndx, nsx)
+            lato = "DX" if ndx >= nsx else "SX"
+            serie_conc.append((m, lato, str(row.get('Data', ''))))
+            
+    val_conc, delta_conc, lato_conc, dt_conc = None, None, "", None
+    if serie_conc:
+        val_conc, lato_conc, dt_conc = serie_conc[-1]
+        if len(serie_conc) > 1:
+            delta_conc = val_conc - serie_conc[-2][0]
+
+    # 3. Forza Dita Eccentrica (max DX/SX per seduta valida)
+    serie_ecc = []
+    for _, row in df_sort.iterrows():
+        v_dx = pd.to_numeric(str(row.get('Eccentrica DX', '')).replace(',', '.'), errors='coerce')
+        v_sx = pd.to_numeric(str(row.get('Eccentrica SX', '')).replace(',', '.'), errors='coerce')
+        ndx = float(v_dx) if pd.notna(v_dx) and v_dx > 0 else 0.0
+        nsx = float(v_sx) if pd.notna(v_sx) and v_sx > 0 else 0.0
+        if ndx > 0 or nsx > 0:
+            m = max(ndx, nsx)
+            lato = "DX" if ndx >= nsx else "SX"
+            serie_ecc.append((m, lato, str(row.get('Data', ''))))
+            
+    val_ecc, delta_ecc, lato_ecc, dt_ecc = None, None, "", None
+    if serie_ecc:
+        val_ecc, lato_ecc, dt_ecc = serie_ecc[-1]
+        if len(serie_ecc) > 1:
+            delta_ecc = val_ecc - serie_ecc[-2][0]
+
+    # 4. Endurance 30s (Media o Picco per seduta valida)
+    serie_end = []
+    for _, row in df_sort.iterrows():
+        v_dx = pd.to_numeric(str(row.get("Endurance 30'' DX - Forza Media", '')).replace(',', '.'), errors='coerce')
+        v_sx = pd.to_numeric(str(row.get("Endurance 30'' SX - Forza Media", '')).replace(',', '.'), errors='coerce')
+        if not (pd.notna(v_dx) and v_dx > 0) and not (pd.notna(v_sx) and v_sx > 0):
+            v_dx = pd.to_numeric(str(row.get("Endurance 30'' DX - Picco Max", row.get("Endurance 30'' DX", ''))).replace(',', '.'), errors='coerce')
+            v_sx = pd.to_numeric(str(row.get("Endurance 30'' SX - Picco Max", row.get("Endurance 30'' SX", ''))).replace(',', '.'), errors='coerce')
+        ndx = float(v_dx) if pd.notna(v_dx) and v_dx > 0 else 0.0
+        nsx = float(v_sx) if pd.notna(v_sx) and v_sx > 0 else 0.0
+        if ndx > 0 or nsx > 0:
+            m = max(ndx, nsx)
+            lato = "DX" if ndx >= nsx else "SX"
+            serie_end.append((m, lato, str(row.get('Data', ''))))
+            
+    val_end, delta_end, lato_end, dt_end = None, None, "", None
+    if serie_end:
+        val_end, lato_end, dt_end = serie_end[-1]
+        if len(serie_end) > 1:
+            delta_end = val_end - serie_end[-2][0]
+
+    return {
+        "1rm": (val_1rm, delta_1rm, dt_1rm),
+        "conc": (val_conc, delta_conc, lato_conc, dt_conc),
+        "ecc": (val_ecc, delta_ecc, lato_ecc, dt_ecc),
+        "end": (val_end, delta_end, lato_end, dt_end)
+    }
+
 # ==============================================================================
 # 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI CLOUD & PRIVACY ATLETA
 # ==============================================================================
@@ -432,11 +522,23 @@ with col_top_h:
 with col_top_out:
     st.write("")
     st.caption(f"👤 **{st.session_state.nome_utente}** ({st.session_state.ruolo})")
-    if st.button("🚪 Esci / Logout", key="btn_logout", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.ruolo = None
-        st.session_state.nome_utente = None
-        st.session_state.nome_atleta_esatto = None
+    col_btn_sync, col_btn_logout = st.columns([1, 1])
+    with col_btn_sync:
+        if st.button("🔄 Sincronizza Dati", key="btn_sync_top", use_container_width=True, help="Ricarica i dati aggiornati dal Cloud Google Sheets"):
+            st.cache_data.clear()
+            st.rerun()
+    with col_btn_logout:
+        if st.button("🚪 Esci", key="btn_logout", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.ruolo = None
+            st.session_state.nome_utente = None
+            st.session_state.nome_atleta_esatto = None
+            st.rerun()
+
+with st.sidebar:
+    st.markdown("### ⚙️ Azioni")
+    if st.button("🔄 Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
+        st.cache_data.clear()
         st.rerun()
 
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
@@ -923,6 +1025,46 @@ if False:
 with tab4:
     st.markdown("### 📈 Storico Analitico (Progressioni)")
     st.markdown("<div class='coach-tip'><b>💡 Come Leggere i Grafici:</b> La progressione in <i>Carico Assoluto (kg)</i> mostra la tua forza pura. Seleziona <i>Forza Relativa (% BW)</i> per capire se sei realmente più forte sulla parete, o se l'aumento dei carichi è solo una compensazione di un eventuale aumento di peso corporeo.</div>", unsafe_allow_html=True)
+    
+    # --- GRIGLIA MACRO-METRICHE STORICHE (MOBILE-FIRST) ---
+    kpis = calcola_macro_kpi_storici(df_atleta)
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    with col_m1:
+        v1, d1, dt1 = kpis["1rm"]
+        st.metric(
+            "🏋️ Trazione 1RM",
+            f"{v1:.1f} kg" if v1 is not None else "N/D",
+            delta=f"{d1:+.1f} kg" if d1 is not None else None,
+            help="Carico massimale teorico calcolato di trazione (ultimo test vs penultimo)."
+        )
+    with col_m2:
+        vc, dc, lc, dtc = kpis["conc"]
+        d_lbl_c = f"{dc:+.1f} kg ({lc})" if dc is not None else (f"Lato: {lc}" if lc else None)
+        st.metric(
+            "🖐️ Dita Concentrica",
+            f"{vc:.1f} kg" if vc is not None else "N/D",
+            delta=d_lbl_c,
+            help="Picco di forza concentrica massima dita su tacca (DX/SX vs penultimo test)."
+        )
+    with col_m3:
+        ve, de, le, dte = kpis["ecc"]
+        d_lbl_e = f"{de:+.1f} kg ({le})" if de is not None else (f"Lato: {le}" if le else None)
+        st.metric(
+            "🛡️ Dita Eccentrica",
+            f"{ve:.1f} kg" if ve is not None else "N/D",
+            delta=d_lbl_e,
+            help="Forza eccentrica dita/freno tendineo (DX/SX vs penultimo test)."
+        )
+    with col_m4:
+        vnd, dnd, lnd, dtnd = kpis["end"]
+        d_lbl_nd = f"{dnd:+.1f} kg ({lnd})" if dnd is not None else (f"Lato: {lnd}" if lnd else None)
+        st.metric(
+            "⏱️ Endurance 30s",
+            f"{vnd:.1f} kg" if vnd is not None else "N/D",
+            delta=d_lbl_nd,
+            help="Test di resistenza continua 30 secondi (ultimo test vs penultimo)."
+        )
+    st.markdown("---")
     
     # --- FUNZIONI DI FORMATTAZIONE ED ORDINAMENTO KINESIOLOGICO METRICHE ---
     def formatta_etichetta_metrica(raw):
