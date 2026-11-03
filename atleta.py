@@ -276,11 +276,59 @@ st.markdown("""
     div.stAlert * { color: #333333 !important; }
     div[data-testid="stAlert"] * { color: #333333 !important; }
 
-    div[data-testid="stToast"] div, div.stAlert, div[data-baseweb="toast"] {
-        word-wrap: break-word !important;
+    /* Risoluzione definitiva overflow popup, tooltip, toast e alert su mobile */
+    div[data-baseweb="tooltip"],
+    div[data-baseweb="popover"],
+    div[data-testid="stTooltipContent"],
+    div[role="tooltip"],
+    div[data-testid="stPopoverBody"] {
+        max-width: calc(100vw - 32px) !important;
+        width: auto !important;
+        box-sizing: border-box !important;
+        word-break: break-word !important;
         overflow-wrap: break-word !important;
         white-space: normal !important;
+    }
+
+    div[data-baseweb="tooltip"] *,
+    div[data-baseweb="popover"] *,
+    div[data-testid="stTooltipContent"] *,
+    div[role="tooltip"] *,
+    div[data-testid="stPopoverBody"] * {
         max-width: 100% !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        white-space: normal !important;
+    }
+
+    div[data-testid="stToastContainer"] {
+        max-width: calc(100vw - 24px) !important;
+        width: auto !important;
+        left: 12px !important;
+        right: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    div[data-testid="stToast"],
+    div[data-baseweb="toast"],
+    div[data-testid="stAlert"],
+    div.stAlert {
+        max-width: 100% !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        white-space: normal !important;
+    }
+
+    div[data-testid="stToast"] *,
+    div[data-baseweb="toast"] *,
+    div[data-testid="stAlert"] *,
+    div.stAlert * {
+        max-width: 100% !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        white-space: normal !important;
     }
 </style>
 """, unsafe_allow_html=True)
