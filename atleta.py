@@ -275,6 +275,13 @@ st.markdown("""
     div.stAlert { color: #333333 !important; }
     div.stAlert * { color: #333333 !important; }
     div[data-testid="stAlert"] * { color: #333333 !important; }
+
+    div[data-testid="stToast"] div, div.stAlert, div[data-baseweb="toast"] {
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+        white-space: normal !important;
+        max-width: 100% !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
