@@ -6,6 +6,8 @@ import io
 import re
 from datetime import datetime
 import numpy as np
+import plotly.graph_objects as go
+import math
 
 def prepara_df_visualizzazione(df_in):
     df_out = df_in.copy()
@@ -63,7 +65,6 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
-    div[data-testid="stSidebar"] { display: none !important; }
     header[data-testid="stHeader"] { display: none !important; }
     footer { display: none !important; }
 
@@ -467,12 +468,12 @@ if not st.session_state.logged_in:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         st.markdown("<div style='text-align: center; margin-top: 2.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
-        st.title("🧗 Vetrina Atleta")
+        st.title("Vetrina Atleta")
         st.caption("Piattaforma di consultazione dati personali Tindeq")
         st.markdown("</div>", unsafe_allow_html=True)
         
         with st.form("login_form", clear_on_submit=False):
-            st.markdown("#### 🔐 Accesso Riservato")
+            st.markdown("#### Accesso Riservato")
             user_input = st.text_input("Username:", placeholder="Inserisci il tuo username").strip()
             pass_input = st.text_input("Password:", type="password", placeholder="Inserisci la password").strip()
             btn_accedi = st.form_submit_button("Accedi alla Vetrina", type="primary", use_container_width=True)
@@ -508,27 +509,27 @@ if not st.session_state.logged_in:
 col_top_h, col_top_out = st.columns([3, 1])
 with col_top_h:
     if st.session_state.ruolo == "Admin" or str(st.session_state.nome_atleta_esatto).upper() == "TUTTI":
-        st.title("🧗 Vetrina Atleta — Vista Admin")
+        st.title("Vetrina Atleta — Vista Admin")
         col_sel_at, col_sz = st.columns([2, 1])
         with col_sel_at:
-            atleta_selezionato = st.selectbox("👤 Seleziona Profilo Atleta:", atleti_lista, key="sel_coach_atleta")
+            atleta_selezionato = st.selectbox("Seleziona Profilo Atleta:", atleti_lista, key="sel_coach_atleta")
         with col_sz:
-            dim_grafico = st.radio("📏 Dimensione Grafici:", ["Compatta (Piccola)", "Standard (Grande)"], horizontal=True, key="sel_dim_grafico")
+            dim_grafico = st.radio("Dimensione Grafici:", ["Compatta (Piccola)", "Standard (Grande)"], horizontal=True, key="sel_dim_grafico")
     else:
         atleta_selezionato = st.session_state.nome_atleta_esatto
-        st.title(f"🧗 Vetrina Atleta — {atleta_selezionato}")
+        st.title(f"Vetrina Atleta — {atleta_selezionato}")
         dim_grafico = "Standard (Grande)"
 
 with col_top_out:
     st.write("")
-    st.caption(f"👤 **{st.session_state.nome_utente}** ({st.session_state.ruolo})")
+    st.caption(f"**{st.session_state.nome_utente}** ({st.session_state.ruolo})")
     col_btn_sync, col_btn_logout = st.columns([1, 1])
     with col_btn_sync:
-        if st.button("🔄 Sincronizza Dati", key="btn_sync_top", use_container_width=True, help="Ricarica i dati aggiornati dal Cloud Google Sheets"):
+        if st.button("Sincronizza Dati", key="btn_sync_top", use_container_width=True, help="Ricarica i dati aggiornati dal Cloud Google Sheets"):
             st.cache_data.clear()
             st.rerun()
     with col_btn_logout:
-        if st.button("🚪 Esci", key="btn_logout", use_container_width=True):
+        if st.button("Esci", key="btn_logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.ruolo = None
             st.session_state.nome_utente = None
@@ -536,8 +537,12 @@ with col_top_out:
             st.rerun()
 
 with st.sidebar:
-    st.markdown("### ⚙️ Azioni")
-    if st.button("🔄 Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
+    try:
+        st.sidebar.image("logo_asd.png", use_container_width=True)
+    except:
+        pass
+    st.markdown("### Azioni")
+    if st.button("Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -646,13 +651,299 @@ def render_card(titolo, info, unit="kg"):
         return html
     return None
 
-tab1, tab4, tab5 = st.tabs(["🏆 Record & Best", "📈 Storico Analitico", "🧬 Analisi Avanzata"])
+tab1, tab4, tab5 = st.tabs(["Record & Best", "Storico Analitico", "Analisi Avanzata"])
 
 with tab1:
-    st.markdown("### 🥇 I Tuoi Record Personali (All-Time)")
-    st.markdown("<div class='coach-tip'><b>💡 L'Occhio del Coach:</b> I record più importanti sono quelli relativi al tuo peso corporeo (% BW). Nel Bouldering moderno, un target d'élite è superare l'<b>80% BW</b> di trazione a dito singolo (Concentrica) e il <b>50-60% BW</b> di zavorra nel Pull-up. Un divario troppo alto tra le due evidenzia una debolezza nella trasmissione della forza sulla parete.</div>", unsafe_allow_html=True)
+
+    # ==============================================================================
+    # SPIDER CHART BIOMECCANICO RADIALE (% BODYWEIGHT)
+    # ==============================================================================
+    st.markdown("### Profilo Biomeccanico — Forza Massima & Metabolismo")
+
+    peso_kpi = None
+    if 'Peso Corporeo' in df_atleta.columns:
+        p_validi = pd.to_numeric(df_atleta['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce').dropna()
+        if not p_validi.empty:
+            peso_kpi = float(p_validi.iloc[-1])
+
+    if not peso_kpi or peso_kpi <= 0:
+        st.warning("Peso corporeo non disponibile: registra il peso corporeo dell'atleta per visualizzare lo Spider Chart del profilo biomeccanico (% BW).")
+    else:
+        # Helper per estrarre l'ultimo valore valido (>0) in ordine cronologico e la rispettiva DataStr
+        def estrai_ultimo_test_valido(colonne):
+            cols_exist = [c for c in colonne if c in df_atleta.columns]
+            if not cols_exist:
+                return 0.0, None
+            df_num = df_atleta[cols_exist].apply(lambda col: pd.to_numeric(col.astype(str).str.replace(',', '.'), errors='coerce'))
+            max_per_riga = df_num.max(axis=1)
+            valide = df_atleta[max_per_riga > 0]
+            if not valide.empty:
+                r = valide.dropna(subset=['Data']).iloc[-1]
+                v = float(max_per_riga.loc[r.name])
+                dt = str(r.get('DataStr', r.get('Data', 'N/D')))
+                return v, dt
+            return 0.0, None
+
+        ottieni_ultimo_valore = lambda df, cols: estrai_ultimo_test_valido(cols)
+
+        # 1. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
+        val_trazione, data_trazione = estrai_ultimo_test_valido(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
+
+        # 2. Dita Concentrica (picco max tra DX e SX)
+        val_conc, data_conc = estrai_ultimo_test_valido(['Concentrica DX', 'Concentrica SX'])
+
+        # 3. Dita Eccentrica (picco max tra DX e SX)
+        val_ecc, data_ecc = estrai_ultimo_test_valido(['Eccentrica DX', 'Eccentrica SX'])
+
+        # 4. Endurance 30s (picco max tra DX e SX)
+        cols_end_picco = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "picco" in c.lower()]
+        if not cols_end_picco:
+            cols_end_picco = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower() and "picco" in c.lower()]
+        if not cols_end_picco:
+            cols_end_picco = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and ("dx" in c.lower() or "sx" in c.lower())]
+        if not cols_end_picco:
+            cols_end_picco = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower()]
+        val_end, data_end = estrai_ultimo_test_valido(cols_end_picco)
+
+        # 5. Critical Force 7:3 (picco max tra DX e SX)
+        cols_cf = [c for c in df_atleta.columns if "critical force" in c.lower()]
+        val_cf, data_cf = estrai_ultimo_test_valido(cols_cf)
+
+        # Conversione in Forza Relativa (% Bodyweight) con l'ultimo peso noto
+        categorie = ['Trazione 1RM', 'Dita Concentrica', 'Dita Eccentrica', 'Endurance 30s', 'Critical Force 7:3']
+        valori_kg = [val_trazione, val_conc, val_ecc, val_end, val_cf]
+        date_test = [data_trazione or "N/D", data_conc or "N/D", data_ecc or "N/D", data_end or "N/D", data_cf or "N/D"]
+        valori_perc = [(v / peso_kpi) * 100 if v > 0 else 0.0 for v in valori_kg]
+        perc_trazione, perc_conc, perc_ecc, perc_end, perc_cf = valori_perc
+
+        if not any(v > 0 for v in valori_kg):
+            st.info("Nessun dato valido registrato nello storico per le 5 macro-categorie dello Spider Chart.")
+        else:
+            # Fissaggio dinamico della scala radiale
+            max_val_rilevato = max(valori_perc) if valori_perc else 0.0
+            if max_val_rilevato < 100.0:
+                max_scala = 100.0
+            else:
+                max_scala = float(math.ceil(max_val_rilevato / 10.0) * 10)
+
+            # Chiusura ciclica del poligono radar e customdata con le date reali
+            r_vals = valori_perc + [valori_perc[0]]
+            theta_vals = categorie + [categorie[0]]
+            customdata_vals = date_test + [date_test[0]]
+
+            layout_radar = go.Layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, max_scala],
+                        ticksuffix="%",
+                        tickfont=dict(size=11, color="#475569"),
+                        gridcolor="#cbd5e1"
+                    ),
+                    angularaxis=dict(
+                        tickfont=dict(size=12, color="#0f172a", family="Inter, sans-serif"),
+                        gridcolor="#e2e8f0"
+                    ),
+                    bgcolor="rgba(248, 250, 252, 0.5)"
+                ),
+                title=dict(
+                    text=f"Profilo Biomeccanico — Ultimi Test Registrati (% BW — Peso: {peso_kpi:.1f} kg)",
+                    font=dict(size=15, color="#0f172a"),
+                    x=0.5,
+                    xanchor='center'
+                ),
+                margin=dict(l=40, r=40, t=50, b=40),
+                showlegend=False,
+                height=450
+            )
+
+            fig_spider = go.Figure(
+                data=go.Scatterpolar(
+                    r=r_vals,
+                    theta=theta_vals,
+                    customdata=customdata_vals,
+                    fill='toself',
+                    fillcolor='rgba(37, 99, 235, 0.25)',
+                    line=dict(color='#2563eb', width=2),
+                    marker=dict(size=7, color='#1d4ed8'),
+                    name=atleta_selezionato,
+                    hovertemplate="<b>%{theta}</b>: %{r:.1f}% BW<br>Data test: %{customdata}<extra></extra>"
+                ),
+                layout=layout_radar
+            )
+
+            st.plotly_chart(fig_spider, use_container_width=True)
+
+            # Didascalia con le date reali degli ultimi test validi
+            st.caption(
+                f"Profilo basato sugli ultimi test validi — "
+                f"Trazione 1RM: {data_trazione or 'N/D'} | "
+                f"Dita Concentrica: {data_conc or 'N/D'} | "
+                f"Dita Eccentrica: {data_ecc or 'N/D'} | "
+                f"Endurance 30s: {data_end or 'N/D'} | "
+                f"Critical Force 7:3: {data_cf or 'N/D'}"
+            )
+
+            # --- VALUTAZIONE BIOMECCANICA & CLINICA (CHECK SEPARATI) ---
+            st.markdown("##### Valutazione Biomeccanica")
+
+            # 1. Check Strutturale (Pulegge / Eccentrica vs Concentrica)
+            if val_conc > 0 and val_ecc > 0:
+                ratio_pe = (val_conc / val_ecc) * 100
+                d_info = f"(Concentrica: {data_conc or 'N/D'} | Eccentrica: {data_ecc or 'N/D'})"
+                if val_conc >= (0.95 * val_ecc):
+                    st.error(
+                        f"**1. Check Strutturale — Allarme Pulegge & Rischio Connettivale {d_info}:** La forza Concentrica "
+                        f"delle dita ({val_conc:.1f} kg / {perc_conc:.1f}% BW) è al **{ratio_pe:.1f}%** della forza Eccentrica "
+                        f"({val_ecc:.1f} kg / {perc_ecc:.1f}% BW). La forza attiva contrattile sta superando la tolleranza "
+                        f"passiva dei tessuti connettivi: il rischio di lesione alle pulegge (A2/A4) è critico. "
+                        f"Si consiglia di evitare carichi massimali dinamici e inserire isometrie yielding/eccentriche protettive."
+                    )
+                else:
+                    st.success(
+                        f"**1. Check Strutturale — Integrità Connettivale {d_info}:** Tolleranza passiva sicura. La forza Eccentrica "
+                        f"({val_ecc:.1f} kg / {perc_ecc:.1f}% BW) supera la Concentrica ({val_conc:.1f} kg / {perc_conc:.1f}% BW), "
+                        f"con un rapporto attivo/passivo al **{ratio_pe:.1f}%** (fisiologico se < 95%). Margine di sicurezza pulegge ottimale."
+                    )
+            elif val_conc > 0 or val_ecc > 0:
+                st.info("1. Check Strutturale: Rilevata solo una tra forza Concentrica ed Eccentrica nello storico; eseguire entrambi i test per il calcolo del ratio di sicurezza tendinea.")
+
+            # 2. Check Motore vs Trasmissione (Trazione 1RM vs Dita Concentrica)
+            if perc_trazione > 0 and perc_conc > 0:
+                diff_mt = perc_trazione - perc_conc
+                d_info_mt = f"(Trazione: {data_trazione or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                if diff_mt > 15.0:
+                    st.warning(
+                        f"**2. Check Motore vs Trasmissione — Squilibrio di Potenza {d_info_mt}:** La Trazione 1RM ({perc_trazione:.1f}% BW) supera la forza Concentrica "
+                        f"delle dita ({perc_conc:.1f}% BW) di **{diff_mt:.1f} punti percentuali**. C'è troppa forza di tirata rispetto "
+                        f"alla capacità delle dita di trasmetterla sulle prese. Suggerimento Tecnico: Aumentare i lavori specifici "
+                        f"a secco sulle dita (hangboard / sospensioni) per allineare la tenuta alla potenza del blocco braccia/dorso."
+                    )
+                elif diff_mt < -15.0:
+                    st.info(
+                        f"**2. Check Motore vs Trasmissione — Dita Dominanti {d_info_mt}:** La forza delle dita ({perc_conc:.1f}% BW) è dominante "
+                        f"rispetto al motore di tirata ({perc_trazione:.1f}% BW, scarto {abs(diff_mt):.1f}%). È consigliato potenziare il blocco "
+                        f"di trazione e i dorsali per sfruttare appieno la solida tenuta delle prese."
+                    )
+                else:
+                    st.success(
+                        f"**2. Check Motore vs Trasmissione — Bilanciamento Ottimale {d_info_mt}:** Rapporto equilibrato tra motore di tirata "
+                        f"({perc_trazione:.1f}% BW) e trasmissione dita ({perc_conc:.1f}% BW, scarto di soli {abs(diff_mt):.1f}%). "
+                        f"La potenza del tronco viene trasferita con efficienza sulle prese."
+                    )
+            elif perc_trazione > 0 or perc_conc > 0:
+                st.info("2. Check Motore vs Trasmissione: Dati di Trazione 1RM o Concentrica parziali nello storico per il calcolo comparativo.")
+
+            # 3. Check Metabolico (Endurance 30s vs Dita Concentrica)
+            if perc_end > 0 and perc_conc > 0:
+                ratio_end = (perc_end / perc_conc) * 100
+                d_info_end = f"(Endurance: {data_end or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                if perc_end < (0.50 * perc_conc):
+                    st.warning(
+                        f"**3. Check Metabolico — Crollo Capacità Lattacida/Endurance {d_info_end}:** A fronte di una buona forza massima delle dita "
+                        f"({perc_conc:.1f}% BW), si osserva una caduta marcata della curva nei test di 30 secondi "
+                        f"(Endurance 30s a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica). "
+                        f"L'atleta esaurisce precocemente le scorte glicolitiche locali sulle prese; inserire blocchi di ripetizioni sub-massimali e capacità lattacida specifica."
+                    )
+                elif perc_end >= (0.70 * perc_conc):
+                    st.success(
+                        f"**3. Check Metabolico — Ottima Resistenza Locale {d_info_end}:** L'atleta mantiene un'alta percentuale di espressione di forza "
+                        f"(Endurance 30s a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica) anche in regime di accumulo lattacido (Test 30s)."
+                    )
+                else:
+                    st.info(
+                        f"**3. Check Metabolico — Resistenza Intermedia {d_info_end}:** L'Endurance 30s si attesta a **{perc_end:.1f}% BW** "
+                        f"(pari al **{ratio_end:.1f}%** del massimale concentrico). Capacità anaerobica nella norma, con margini di progressione sulla capillarizzazione locale."
+                    )
+            elif perc_end > 0:
+                st.info(f"3. Check Metabolico: Endurance 30s registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {data_end or 'N/D'}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
+            else:
+                st.caption("3. Check Metabolico: Nessun test Endurance 30s registrato nello storico dell'atleta.")
+
+            # --- 4. ANALISI RFD (CONTACT STRENGTH SUI TEMPI DI CONTATTO REALI) ---
+            cols_rfd = [c for c in df_atleta.columns if "rfd" in c.lower() and "dita" in c.lower()]
+            if not cols_rfd:
+                cols_rfd = [c for c in df_atleta.columns if "rfd" in c.lower() and not "pull" in c.lower()]
+            rfd_picco, d_rfd = ottieni_ultimo_valore(df_atleta, cols_rfd)
+
+            rfd_dx_val, rfd_sx_val = 0.0, 0.0
+            if d_rfd:
+                r_rfd = df_atleta[df_atleta['Data'].astype(str) == str(d_rfd)]
+                if r_rfd.empty and 'DataStr' in df_atleta.columns:
+                    r_rfd = df_atleta[df_atleta['DataStr'].astype(str) == str(d_rfd)]
+                if not r_rfd.empty:
+                    u_rfd = r_rfd.iloc[-1]
+                    col_dx = next((c for c in cols_rfd if "dx" in c.lower()), None)
+                    col_sx = next((c for c in cols_rfd if "sx" in c.lower()), None)
+                    v_dx_r = pd.to_numeric(str(u_rfd.get(col_dx, 0)).replace(',', '.'), errors='coerce') if col_dx else 0.0
+                    v_sx_r = pd.to_numeric(str(u_rfd.get(col_sx, 0)).replace(',', '.'), errors='coerce') if col_sx else 0.0
+                    rfd_dx_val = float(v_dx_r) if pd.notna(v_dx_r) and v_dx_r > 0 else 0.0
+                    rfd_sx_val = float(v_sx_r) if pd.notna(v_sx_r) and v_sx_r > 0 else 0.0
+
+            rfd_picco = max(rfd_dx_val, rfd_sx_val, rfd_picco if rfd_picco else 0.0)
+            if rfd_picco > 0:
+                tempo_contatto = 0.20
+                forza_contatto_200ms = rfd_picco * tempo_contatto
+                perc_espressa_200ms = (forza_contatto_200ms / val_conc * 100) if val_conc > 0 else None
+
+                if rfd_picco >= 180:
+                    badge_rfd = "Elevata (Élite)"
+                    diagnosi_rfd = "Reclutamento neuro-muscolare istantaneo: eccellente capacità di trattenere prese dinamiche e lanci al volo."
+                elif rfd_picco >= 120:
+                    badge_rfd = "Buona (Avanzato)"
+                    diagnosi_rfd = "Buona reattività neurale: l'atleta esprime forza di contatto sufficiente sulla maggior parte dei movimenti balistici."
+                else:
+                    badge_rfd = "Latenza di Reclutamento (Motore Diesel)"
+                    diagnosi_rfd = "La forza massimale è presente ma sale troppo lentamente: l'atleta rischia di perdere la presa nei primi 200ms prima di aver sviluppato la tensione utile."
+
+                st.markdown("---")
+                st.markdown("##### 4. Riquadro Dedicato: Valori RFD & Contact Strength in Chiaro")
+                col_rfd1, col_rfd2, col_rfd3 = st.columns(3)
+                with col_rfd1:
+                    delta_lati = f"DX: {rfd_dx_val:.1f} | SX: {rfd_sx_val:.1f}" if (rfd_dx_val > 0 and rfd_sx_val > 0) else None
+                    st.metric(
+                        "Picco RFD Dita",
+                        f"{rfd_picco:.1f} kg/s",
+                        delta=delta_lati,
+                        help="Rate of Force Development: velocità di incremento della forza delle dita su tacca."
+                    )
+                with col_rfd2:
+                    st.metric(
+                        "Forza a 200ms",
+                        f"{forza_contatto_200ms:.1f} kg",
+                        help="Forza scaricata sulla presa nella finestra di contatto reale dei lanci/dinamici (200 millisecondi = 0.2s)."
+                    )
+                with col_rfd3:
+                    txt_pe = f"{perc_espressa_200ms:.1f}%" if perc_espressa_200ms is not None else "N/D"
+                    st.metric(
+                        "Efficienza di Contatto",
+                        txt_pe,
+                        help="Percentuale della forza concentrica massimale effettivamente sbloccata nei primi 200ms dall'impatto con la presa."
+                    )
+
+                asim_rfd_txt = ""
+                if rfd_dx_val > 0 and rfd_sx_val > 0:
+                    gap_rfd = (abs(rfd_dx_val - rfd_sx_val) / rfd_picco) * 100
+                    ld_rfd = "DX" if rfd_dx_val < rfd_sx_val else "SX"
+                    if gap_rfd > 15.0:
+                        asim_rfd_txt = f" <br><b>Asimmetria Esplosiva:</b> {gap_rfd:.1f}% (lato debole: {ld_rfd}) — deficit di coordinazione neurale o di spinta sull'arto debole."
+
+                st.markdown(
+                    f"<div style='background-color: #f8fafc; border-left: 4px solid #8b5cf6; padding: 12px 16px; border-radius: 6px; margin-top: 10px; font-size: 0.92em; color: #1e293b; line-height: 1.5;'>"
+                    f"<b>Diagnosi Contact Strength [Test: {d_rfd or 'N/D'}]:</b> {badge_rfd}<br>"
+                    f"Nel tempo di contatto reale di un movimento dinamico (<b>200 ms</b>), l'atleta genera <b>{forza_contatto_200ms:.1f} kg</b>"
+                    f"{f' ({perc_espressa_200ms:.1f}% della forza massima concentrica di {val_conc:.1f} kg)' if perc_espressa_200ms else ''}. "
+                    f"{diagnosi_rfd}{asim_rfd_txt}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
+    st.markdown("---")
+
+    st.markdown("### I Tuoi Record Personali (All-Time)")
+    st.markdown("<div class='coach-tip'><b>L'Occhio del Coach:</b> I record più importanti sono quelli relativi al tuo peso corporeo (% BW). Nel Bouldering moderno, un target d'élite è superare l'<b>80% BW</b> di trazione a dito singolo (Concentrica) e il <b>50-60% BW</b> di zavorra nel Pull-up. Un divario troppo alto tra le due evidenzia una debolezza nella trasmissione della forza sulla parete.</div>", unsafe_allow_html=True)
     
-    st.markdown("#### 🧗 Specifici (Dita, Trazione, Isometria)")
+    st.markdown("#### Specifici (Dita, Trazione, Isometria)")
     colonne_specifiche = [
         ('Pull-Up 1RM Calcolata', 'Trazione (1RM)'), ('Pull-Up 1RM Reale', 'Trazione (1RM Reale)'),
         ('Concentrica', 'Dita Concentrica'), ('Eccentrica', 'Dita Eccentrica'), ('Stese', 'Dita Stese'),
@@ -670,7 +961,7 @@ with tab1:
     else: st.info("Nessun record specifico registrato.")
     
     st.markdown("---")
-    with st.expander("🏋️ Mostra Misurazioni Manuali e Test Generali (Panca, Squat, Corpo Libero)", expanded=False):
+    with st.expander("Mostra Misurazioni Manuali e Test Generali (Panca, Squat, Corpo Libero)", expanded=False):
         colonne_generali = ['Panca', 'Squat', 'Deadlift', 'Push-up MAX rep', "Sit-up in 30''", 'Planck palla medica sec.', 'Box Jump', 'Squat contro parete']
         cards_html_gen = []
         for col in colonne_generali:
@@ -749,14 +1040,14 @@ if os.path.exists(cartella):
                     else: file_forza[chiave_tendina] = percorso_completo
 
 if False:
-    st.markdown("### 💪 Laboratorio Forza (Curve Isometria & RFD)")
-    st.markdown("<div class='coach-tip'><b>💡 Pillola Biomeccanica:</b> Una linea che sale molto ripida nei primissimi decimi di secondo indica un eccellente <i>Tasso di Sviluppo della Forza (RFD)</i>. Questa è la famosa 'forza di contatto' che ti permette di tenere le prese in modo dinamico. Una curva tremolante in cima, invece, evidenzia una scarsa stiffness (rigidità) tendinea.</div>", unsafe_allow_html=True)
+    st.markdown("### Laboratorio Forza (Curve Isometria & RFD)")
+    st.markdown("<div class='coach-tip'><b>Pillola Biomeccanica:</b> Una linea che sale molto ripida nei primissimi decimi di secondo indica un eccellente <i>Tasso di Sviluppo della Forza (RFD)</i>. Questa è la famosa 'forza di contatto' che ti permette di tenere le prese in modo dinamico. Una curva tremolante in cima, invece, evidenzia una scarsa stiffness (rigidità) tendinea.</div>", unsafe_allow_html=True)
     
     if file_forza:
         # FIX ORDINAMENTO: Uso la funzione che estrae la data reale
         chiavi_ordinate = sorted(file_forza.keys(), key=estrai_data_per_ordinamento, reverse=True)
         alias_sel = st.selectbox("Seleziona una Curva di Forza (in ordine cronologico):", chiavi_ordinate)
-        confronto_bilaterale = st.toggle("⚖️ Sovrapponi Lato Opposto (Confronto DX/SX)", key="toggle_bilaterale_forza")
+        confronto_bilaterale = st.toggle("Sovrapponi Lato Opposto (Confronto DX/SX)", key="toggle_bilaterale_forza")
         if alias_sel:
             file_sel = file_forza[alias_sel]
             df_curva, col_peso, err_msg = leggi_curva_csv(file_sel)
@@ -764,7 +1055,7 @@ if False:
                 try:
                     picco_max = df_curva[col_peso].max()
                     val_picco = f"{picco_max:.1f} kg" if pd.notna(picco_max) else "N/D"
-                    st.success(f"**⚡ Picco Rilevato:** {val_picco}")
+                    st.success(f"**Picco Rilevato:** {val_picco}")
                     
                     fig, ax = plt.subplots(figsize=fig_size)
                     if confronto_bilaterale:
@@ -795,14 +1086,14 @@ if False:
                     ax.set_ylabel("Forza (kg)"); ax.set_xlabel("Tempo (s)"); ax.grid(True, alpha=0.3)
                     st.pyplot(fig, use_container_width=True)
                 except Exception:
-                    st.info("ℹ️ Curva non disponibile per questo test (N/D).")
+                    st.info("Curva non disponibile per questo test (N/D).")
             else:
-                st.info("ℹ️ Dati curva non disponibili (N/D).")
+                st.info("Dati curva non disponibili (N/D).")
     else: st.warning("Nessun test di Forza Specifica trovato nel tuo archivio.")
 
 if False:
-    st.markdown("### 🔬 Laboratorio Endurance (Sistemi Energetici)")
-    st.markdown("<div class='coach-tip'><b>💡 Fisiologia dell'Arrampicata:</b> Nel test <b>7:3 (Critical Force)</b> cerchiamo il <i>plateau metabolico</i>: la forza media che riesci a mantenere nell'ultimo blocco di ripetizioni. Nel test <b>30s</b>, un crollo repentino della forza (box rossi) indica una scarsa capillarizzazione: il muscolo si acidifica velocemente e le cellule non riescono a smaltire le scorie.</div>", unsafe_allow_html=True)
+    st.markdown("### Laboratorio Endurance (Sistemi Energetici)")
+    st.markdown("<div class='coach-tip'><b>Fisiologia dell'Arrampicata:</b> Nel test <b>7:3 (Critical Force)</b> cerchiamo il <i>plateau metabolico</i>: la forza media che riesci a mantenere nell'ultimo blocco di ripetizioni. Nel test <b>30s</b>, un crollo repentino della forza (box rossi) indica una scarsa capillarizzazione: il muscolo si acidifica velocemente e le cellule non riescono a smaltire le scorie.</div>", unsafe_allow_html=True)
     
     def colore_percentuale(val):
         if pd.isna(val) or val == "": return ''
@@ -820,7 +1111,7 @@ if False:
         # FIX ORDINAMENTO: Uso la funzione che estrae la data reale
         chiavi_ordinate = sorted(file_endurance.keys(), key=estrai_data_per_ordinamento, reverse=True)
         alias_sel = st.selectbox("Seleziona una Curva Metabolica (in ordine cronologico):", chiavi_ordinate)
-        confronto_bilaterale = st.toggle("⚖️ Sovrapponi Lato Opposto (Confronto DX/SX)", key="toggle_bilaterale_endurance")
+        confronto_bilaterale = st.toggle("Sovrapponi Lato Opposto (Confronto DX/SX)", key="toggle_bilaterale_endurance")
         if alias_sel:
             file_sel = file_endurance[alias_sel]
             try:
@@ -893,8 +1184,8 @@ if False:
     else: st.warning("Nessun test Endurance trovato nel tuo archivio.")
 
 with tab4:
-    st.markdown("### 📈 Storico Analitico (Progressioni)")
-    st.markdown("<div class='coach-tip'><b>💡 Come Leggere i Grafici:</b> La progressione in <i>Carico Assoluto (kg)</i> mostra la tua forza pura. Seleziona <i>Forza Relativa (% BW)</i> per capire se sei realmente più forte sulla parete, o se l'aumento dei carichi è solo una compensazione di un eventuale aumento di peso corporeo.</div>", unsafe_allow_html=True)
+    st.markdown("### Storico Analitico (Progressioni)")
+    st.markdown("<div class='coach-tip'><b>Come Leggere i Grafici:</b> La progressione in <i>Carico Assoluto (kg)</i> mostra la tua forza pura. Seleziona <i>Forza Relativa (% BW)</i> per capire se sei realmente più forte sulla parete, o se l'aumento dei carichi è solo una compensazione di un eventuale aumento di peso corporeo.</div>", unsafe_allow_html=True)
     
     # --- GRIGLIA MACRO-METRICHE STORICHE (MOBILE-FIRST) ---
     kpis = calcola_macro_kpi_storici(df_atleta)
@@ -902,7 +1193,7 @@ with tab4:
     with col_m1:
         v1, d1, dt1 = kpis["1rm"]
         st.metric(
-            "🏋️ Trazione 1RM",
+            "Trazione 1RM",
             f"{v1:.1f} kg" if v1 is not None else "N/D",
             delta=f"{d1:+.1f} kg" if d1 is not None else None,
             help="Carico massimale teorico calcolato di trazione (ultimo test vs penultimo)."
@@ -911,7 +1202,7 @@ with tab4:
         vc, dc, lc, dtc = kpis["conc"]
         d_lbl_c = f"{dc:+.1f} kg ({lc})" if dc is not None else (f"Lato: {lc}" if lc else None)
         st.metric(
-            "🖐️ Dita Concentrica",
+            "Dita Concentrica",
             f"{vc:.1f} kg" if vc is not None else "N/D",
             delta=d_lbl_c,
             help="Picco di forza concentrica massima dita su tacca (DX/SX vs penultimo test)."
@@ -920,7 +1211,7 @@ with tab4:
         ve, de, le, dte = kpis["ecc"]
         d_lbl_e = f"{de:+.1f} kg ({le})" if de is not None else (f"Lato: {le}" if le else None)
         st.metric(
-            "🛡️ Dita Eccentrica",
+            "Dita Eccentrica",
             f"{ve:.1f} kg" if ve is not None else "N/D",
             delta=d_lbl_e,
             help="Forza eccentrica dita/freno tendineo (DX/SX vs penultimo test)."
@@ -929,7 +1220,7 @@ with tab4:
         vnd, dnd, lnd, dtnd = kpis["end"]
         d_lbl_nd = f"{dnd:+.1f} kg ({lnd})" if dnd is not None else (f"Lato: {lnd}" if lnd else None)
         st.metric(
-            "⏱️ Endurance 30s",
+            "Endurance 30s",
             f"{vnd:.1f} kg" if vnd is not None else "N/D",
             delta=d_lbl_nd,
             help="Test di resistenza continua 30 secondi (ultimo test vs penultimo)."
@@ -988,7 +1279,7 @@ with tab4:
         modalita = col_s2.radio("Modalità di Visualizzazione:", ["Carico Assoluto (kg)", "Forza Relativa (% BW)"], horizontal=True)
         
         chiave_testo = next((k for k in TESTI_FISIOLOGIA.keys() if k.lower() in test_sel.lower()), None)
-        if chiave_testo: st.markdown(f"<div class='bio-info-box'><b>ℹ️ Anatomia e Funzione:</b><br>{TESTI_FISIOLOGIA[chiave_testo].replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
+        if chiave_testo: st.markdown(f"<div class='bio-info-box'><b>Anatomia e Funzione:</b><br>{TESTI_FISIOLOGIA[chiave_testo].replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
             
         fig, ax = plt.subplots(figsize=fig_size)
         match_dx = [c for c in df_atleta.columns if c.replace(' DX', '') == test_sel and ' DX' in c]
@@ -1018,7 +1309,7 @@ with tab4:
             plt.xticks(rotation=45, ha='right')
             st.pyplot(fig, use_container_width=True)
             
-        with st.expander("📋 Tabella Dati Completa (Record evidenziati in DarkGoldenRod)", expanded=False):
+        with st.expander("Tabella Dati Completa (Record evidenziati in DarkGoldenRod)", expanded=False):
             df_tab4 = df_atleta.drop(columns=['Data_dt', '_Data_Sort'], errors='ignore').dropna(axis=1, how='all').copy()
             colonne_numeriche = []
             for c in df_tab4.columns:
@@ -1040,17 +1331,43 @@ with tab4:
     else: st.info("Nessun dato storico.")
 
 with tab5:
-    st.markdown("### 🧬 Analisi Avanzata & Confronti Biomeccanici")
+    st.markdown("### Analisi Avanzata & Confronti Biomeccanici")
     df_bio = df_atleta.dropna(subset=['Peso Corporeo'])
     
     if not df_bio.empty:
         st.markdown("#### 1. Trazione (Motore) vs Dita (Trasmissione)")
-        st.markdown("<div class='coach-tip'><b>💡 Ottimizzazione:</b> Se il Motore (trazione) è molto forte ma la Trasmissione (dita) è bassa, la forza propulsiva viene persa appena la presa si riduce. Cerca di mantenere le due linee in proporzione equilibrata. (Valori in % BW)</div>", unsafe_allow_html=True)
-        if 'Pull-Up 1RM Calcolata' in df_bio.columns and 'Concentrica DX' in df_bio.columns:
-            df_mvst = df_bio.dropna(subset=['Pull-Up 1RM Calcolata', 'Concentrica DX', 'Concentrica SX'])
+        st.markdown("<div class='coach-tip'><b>Ottimizzazione:</b> Se il Motore (trazione) è molto forte ma la Trasmissione (dita) è bassa, la forza propulsiva viene persa appena la presa si riduce. Cerca di mantenere le due linee in proporzione equilibrata. (Valori in % BW)</div>", unsafe_allow_html=True)
+        has_pull = 'Pull-Up 1RM Calcolata' in df_bio.columns or 'Pull-Up 1RM Reale' in df_bio.columns
+        if has_pull and 'Concentrica DX' in df_bio.columns:
+            col_pull_target = 'Pull-Up 1RM Calcolata' if 'Pull-Up 1RM Calcolata' in df_bio.columns else 'Pull-Up 1RM Reale'
+            df_mvst = df_bio.dropna(subset=[col_pull_target, 'Concentrica DX', 'Concentrica SX']).copy()
             if not df_mvst.empty:
-                df_mvst['Motore %'] = (pd.to_numeric(df_mvst['Pull-Up 1RM Calcolata']) / pd.to_numeric(df_mvst['Peso Corporeo'])) * 100
-                df_mvst['Trasmissione %'] = (df_mvst[['Concentrica DX', 'Concentrica SX']].astype(float).max(axis=1) / pd.to_numeric(df_mvst['Peso Corporeo'])) * 100
+                # --- FIX: Sostituzione virgola con punto prima della conversione float ---
+                s_conc_dx = pd.to_numeric(df_mvst['Concentrica DX'].astype(str).str.replace(',', '.'), errors='coerce')
+                s_conc_sx = pd.to_numeric(df_mvst['Concentrica SX'].astype(str).str.replace(',', '.'), errors='coerce')
+                
+                s_traz = pd.Series(0, index=df_mvst.index)
+                if 'Pull-Up 1RM Calcolata' in df_mvst.columns:
+                    s_traz = pd.to_numeric(df_mvst['Pull-Up 1RM Calcolata'].astype(str).str.replace(',', '.'), errors='coerce')
+                elif 'Pull-Up 1RM Reale' in df_mvst.columns:
+                    s_traz = pd.to_numeric(df_mvst['Pull-Up 1RM Reale'].astype(str).str.replace(',', '.'), errors='coerce')
+                
+                s_peso = pd.to_numeric(df_mvst['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
+                
+                # Calcolo Percentuali
+                df_mvst['Trasmissione %'] = (pd.concat([s_conc_dx, s_conc_sx], axis=1).max(axis=1) / s_peso) * 100
+                df_mvst['Motore %'] = (s_traz / s_peso) * 100
+                
+                # Per l'integrata (Isometria Vertical Pull)
+                s_iso_dx = pd.Series(0, index=df_mvst.index)
+                s_iso_sx = pd.Series(0, index=df_mvst.index)
+                if 'Vertical Pull 120° DX' in df_mvst.columns:
+                    s_iso_dx = pd.to_numeric(df_mvst['Vertical Pull 120° DX'].astype(str).str.replace(',', '.'), errors='coerce')
+                if 'Vertical Pull 120° SX' in df_mvst.columns:
+                    s_iso_sx = pd.to_numeric(df_mvst['Vertical Pull 120° SX'].astype(str).str.replace(',', '.'), errors='coerce')
+                
+                df_mvst['Integrata %'] = (pd.concat([s_iso_dx, s_iso_sx], axis=1).max(axis=1) / s_peso) * 100
+
                 fig, ax = plt.subplots(figsize=fig_size)
                 ax.plot(df_mvst['Data'], df_mvst['Motore %'], label='Motore (Trazione Pull-Up)', marker='o', color='#3b82f6')
                 ax.plot(df_mvst['Data'], df_mvst['Trasmissione %'], label='Trasmissione (Concentrica Max Dita)', marker='o', color='#8b5cf6')
@@ -1059,146 +1376,37 @@ with tab5:
                 st.pyplot(fig, use_container_width=True)
         
         st.markdown("#### 2. Prevenzione Infortuni Strutturali")
-        st.markdown("<div class='coach-tip'><b>🚨 Alert Clinico:</b> La forza Eccentrica (passiva) rappresenta il 'freno a mano' e la tolleranza limite dei tuoi tendini e pulegge. Se la forza Concentrica (il 'motore' attivo) la supera (o arriva al 95%), l'infortunio è statisticamente molto vicino. In tal caso, si scala il carico e si prescrivono isometrie Yielding per rinforzare i tessuti connettivi.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='coach-tip'><b>Alert Clinico:</b> La forza Eccentrica (passiva) rappresenta il 'freno a mano' e la tolleranza limite dei tuoi tendini e pulegge. Se la forza Concentrica (il 'motore' attivo) la supera (o arriva al 95%), l'infortunio è statisticamente molto vicino. In tal caso, si scala il carico e si prescrivono isometrie Yielding per rinforzare i tessuti connettivi.</div>", unsafe_allow_html=True)
         if 'Concentrica DX' in df_bio.columns and 'Eccentrica DX' in df_bio.columns:
-            df_inf = df_bio.dropna(subset=['Concentrica DX', 'Concentrica SX', 'Eccentrica DX', 'Eccentrica SX'])
+            df_inf = df_bio.dropna(subset=['Concentrica DX', 'Concentrica SX', 'Eccentrica DX', 'Eccentrica SX']).copy()
             if not df_inf.empty:
                 ult_inf = df_inf.iloc[-1]
-                max_conc = max(float(ult_inf['Concentrica DX']), float(ult_inf['Concentrica SX']))
-                max_ecc = max(float(ult_inf['Eccentrica DX']), float(ult_inf['Eccentrica SX']))
+                v_c_dx = pd.to_numeric(str(ult_inf.get('Concentrica DX', 0)).replace(',', '.'), errors='coerce') or 0.0
+                v_c_sx = pd.to_numeric(str(ult_inf.get('Concentrica SX', 0)).replace(',', '.'), errors='coerce') or 0.0
+                v_e_dx = pd.to_numeric(str(ult_inf.get('Eccentrica DX', 0)).replace(',', '.'), errors='coerce') or 0.0
+                v_e_sx = pd.to_numeric(str(ult_inf.get('Eccentrica SX', 0)).replace(',', '.'), errors='coerce') or 0.0
+                max_conc = max(float(v_c_dx), float(v_c_sx))
+                max_ecc = max(float(v_e_dx), float(v_e_sx))
                 
                 c1, c2 = st.columns(2)
-                c1.metric("Max Concentrica (Attiva)", f"{max_conc} kg")
-                c2.metric("Max Eccentrica (Passiva)", f"{max_ecc} kg")
+                c1.metric("Max Concentrica (Attiva)", f"{max_conc:.1f} kg")
+                c2.metric("Max Eccentrica (Passiva)", f"{max_ecc:.1f} kg")
                 
-                if max_conc >= max_ecc * 0.95: st.error("⚠️ **ALLARME STRUTTURALE:** La forza attiva è vicina/supera la tolleranza passiva.")
-                else: st.success("✅ Margine di sicurezza strutturale nella norma.")
+                if max_conc >= max_ecc * 0.95: st.error("**ALLARME STRUTTURALE:** La forza attiva è vicina o supera la tolleranza passiva.")
+                else: st.success("Margine di sicurezza strutturale nella norma.")
 
         st.markdown("#### 3. Zavorra Inerziale vs Forza Erogata")
-        st.markdown("<div class='coach-tip'><b>💡 Rapporto Peso/Potenza:</b> Questa visualizzazione a doppio asse è cruciale. Se la linea verde (Forza) sale, ma sale anche la linea rossa (Peso Corporeo), potresti non sentire reali benefici su roccia. Il miglioramento ideale vede la linea verde salire mentre la rossa resta stabile o scende leggermente.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='coach-tip'><b>Rapporto Peso/Potenza:</b> Questa visualizzazione a doppio asse è cruciale. Se la linea verde (Forza) sale, ma sale anche la linea rossa (Peso Corporeo), potresti non sentire reali benefici su roccia. Il miglioramento ideale vede la linea verde salire mentre la rossa resta stabile o scende leggermente.</div>", unsafe_allow_html=True)
         if 'Pull-Up 1RM Calcolata' in df_bio.columns:
-            df_fz = df_bio.dropna(subset=['Pull-Up 1RM Calcolata'])
+            df_fz = df_bio.dropna(subset=['Pull-Up 1RM Calcolata']).copy()
             if not df_fz.empty:
                 fig, ax1 = plt.subplots(figsize=fig_size)
                 ax2 = ax1.twinx()
-                ax1.plot(df_fz['Data'], pd.to_numeric(df_fz['Pull-Up 1RM Calcolata']), marker='o', linestyle='-', label='Forza Erogata (kg)', color='#10b981')
-                ax2.plot(df_fz['Data'], pd.to_numeric(df_fz['Peso Corporeo']), marker='s', linestyle='--', label='Peso Corporeo (kg)', color='#ef4444')
+                s_fz = pd.to_numeric(df_fz['Pull-Up 1RM Calcolata'].astype(str).str.replace(',', '.'), errors='coerce')
+                s_bw = pd.to_numeric(df_fz['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
+                ax1.plot(df_fz['Data'], s_fz, marker='o', linestyle='-', label='Forza Erogata (kg)', color='#10b981')
+                ax2.plot(df_fz['Data'], s_bw, marker='s', linestyle='--', label='Peso Corporeo (kg)', color='#ef4444')
                 ax1.set_ylabel('Forza (kg)', color='#10b981'); ax2.set_ylabel('Peso Corporeo (kg)', color='#ef4444')
                 ax1.grid(True, alpha=0.3)
                 plt.setp(ax1.get_xticklabels(), rotation=45, ha="right")
                 st.pyplot(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("#### 4. Profilo Biomeccanico Atleta (Spider Radar Chart)")
-    
-    # 1. Estrazione Date Uniche dei test di forza o endurance
-    colonne_test_radar = [
-        c for c in df_atleta.columns 
-        if c not in ['Data', 'DataStr', 'Data_dt', 'Atleta', 'Gruppo', 'Peso Corporeo', 
-                     'Braccio (cm)', 'Petto (cm)', 'Addome (cm)', 'Bacino (cm)', 'Coscia (cm)', '_Data_Sort']
-    ]
-    df_con_test = df_atleta[df_atleta[colonne_test_radar].notna().any(axis=1)].copy()
-    date_test = df_con_test['Data'].dropna().unique().tolist()
-    if not date_test:
-        date_test = df_atleta['Data'].dropna().unique().tolist()
-        
-    if date_test:
-        # 2. Slider Interattivo
-        if len(date_test) > 1:
-            data_sel = st.select_slider(
-                "Scorri la linea del tempo (Evoluzione del Profilo):",
-                options=date_test,
-                value=date_test[-1],
-                key="slider_tempo_radar"
-            )
-        else:
-            data_sel = date_test[0]
-            st.caption(f"📅 Rilevazione disponibile: **{data_sel}**")
-            
-        # 3. Filtro Dinamico fino alla data selezionata inclusa
-        if 'Data_dt' in df_atleta.columns and pd.notna(df_atleta['Data_dt']).any():
-            dt_limite = pd.to_datetime(data_sel)
-            df_radar_filt = df_atleta[df_atleta['Data_dt'] <= dt_limite].copy()
-        else:
-            df_radar_filt = df_atleta[df_atleta['Data'] <= data_sel].copy()
-            
-        # Calcolo massimali storici fino a data_sel per le 4 macro-aree (normalizzate su base 100)
-        # 1. Trazione Max: target 60% BW = 100 punti
-        rec_pull = calcola_record_assoluto('Pull-Up 1RM Calcolata', df_target=df_radar_filt)
-        if rec_pull['valore'] == 0:
-            rec_pull = calcola_record_assoluto('Pull-Up 1RM Reale', df_target=df_radar_filt)
-        score_pull = 0.0
-        if rec_pull['valore'] > 0 and rec_pull['bw'] > 0:
-            pct_pull = (rec_pull['valore'] / rec_pull['bw']) * 100
-            score_pull = min(100.0, max(0.0, (pct_pull / 60.0) * 100))
-            
-        # 2. Dita Concentrica: target 80% BW = 100 punti
-        rec_dita = calcola_record_assoluto('Concentrica', df_target=df_radar_filt)
-        score_dita = 0.0
-        if rec_dita['valore'] > 0 and rec_dita['bw'] > 0:
-            pct_dita = (rec_dita['valore'] / rec_dita['bw']) * 100
-            score_dita = min(100.0, max(0.0, (pct_dita / 80.0) * 100))
-            
-        # 3. Endurance 30s: target 70% BW = 100 punti (o valore max / 50kg)
-        rec_end = calcola_record_assoluto("Endurance 30''", df_target=df_radar_filt)
-        score_end = 0.0
-        if rec_end['valore'] > 0:
-            if rec_end['bw'] > 0:
-                pct_end = (rec_end['valore'] / rec_end['bw']) * 100
-                score_end = min(100.0, max(0.0, (pct_end / 70.0) * 100))
-            else:
-                score_end = min(100.0, max(0.0, (rec_end['valore'] / 50.0) * 100))
-                
-        # 4. Esplosività RFD: target 150 kg/s = 100 punti
-        rec_rfd = calcola_record_assoluto('RFD Dita', df_target=df_radar_filt)
-        score_rfd = 0.0
-        if rec_rfd['valore'] > 0:
-            score_rfd = min(100.0, max(0.0, (rec_rfd['valore'] / 150.0) * 100))
-            
-        macro_categorie = ['Trazione (Upper Body)', 'Forza Dita Max', 'Endurance 30s', 'Esplosività RFD']
-        punteggi = [round(score_pull, 1), round(score_dita, 1), round(score_end, 1), round(score_rfd, 1)]
-        
-        # 4. Aggiornamento UI: Radar Chart e Diagnosi Profilo Atleta
-        col_rad1, col_rad2 = st.columns([1, 1])
-        with col_rad1:
-            N = len(macro_categorie)
-            angoli = [n / float(N) * 2 * np.pi for n in range(N)]
-            punteggi_plot = punteggi + punteggi[:1]
-            angoli_plot = angoli + angoli[:1]
-            
-            fig_r, ax_r = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
-            ax_r.set_theta_offset(np.pi / 2)
-            ax_r.set_theta_direction(-1)
-            plt.xticks(angoli, macro_categorie, color='#0f172a', size=10, weight='bold')
-            ax_r.set_rlabel_position(0)
-            plt.yticks([25, 50, 75, 100], ['25%', '50%', '75%', '100%'], color='#64748b', size=8)
-            plt.ylim(0, 100)
-            ax_r.plot(angoli_plot, punteggi_plot, linewidth=2.5, linestyle='solid', color='#2563eb')
-            ax_r.fill(angoli_plot, punteggi_plot, color='#3b82f6', alpha=0.25)
-            ax_r.scatter(angoli, punteggi, color='#1d4ed8', s=50, zorder=5)
-            st.pyplot(fig_r, use_container_width=True)
-            
-        with col_rad2:
-            st.markdown(f"##### 🧭 Diagnosi del Profilo Atleta *(fino al {data_sel})*")
-            validi = [(macro_categorie[i], punteggi[i]) for i in range(len(macro_categorie)) if punteggi[i] > 0]
-            if validi:
-                best_cat, best_val = max(validi, key=lambda x: x[1])
-                worst_cat, worst_val = min(validi, key=lambda x: x[1])
-                
-                st.success(f"🎯 **Punto di Forza:** **{best_cat}** ({best_val:.0f}/100)")
-                if 'Endurance' in best_cat:
-                    st.caption("Spiccata attitudine alla continuità: eccellente per vie lunghe e tiri ad alto numero di movimenti.")
-                elif 'Dita' in best_cat or 'RFD' in best_cat:
-                    st.caption("Profilo da boulderista potente: grande tenuta sulle prese piccole e capacità di contatto dinamico esplosivo.")
-                else:
-                    st.caption("Grande motore di tirata nell'upper body: ideale per compressioni, strapiombi accentuati e movimenti a grande escursione.")
-                    
-                if worst_val < best_val - 15:
-                    st.warning(f"⚠️ **Area di Priorità Allenante:** **{worst_cat}** ({worst_val:.0f}/100)")
-                    st.caption("Rappresenta l'anello debole della catena cinetica fino a questo punto temporale. Focalizzare i richiami della fase di condizionamento su questo distretto.")
-                else:
-                    st.info("⚖️ **Profilo Armonico:** Tutte le macro-aree presentano uno sviluppo equilibrato senza evidenti asimmetrie prestazionali.")
-            else:
-                st.info(f"Nessun test registrato fino alla data **{data_sel}**. Sposta il cursore verso date più recenti per visualizzare l'evoluzione.")
-    else:
-        st.info("Nessun dato di test registrato per generare il Profilo Radar.")
