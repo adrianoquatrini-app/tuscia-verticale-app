@@ -686,14 +686,14 @@ with tab1:
 
         ottieni_ultimo_valore = lambda df, cols: estrai_ultimo_test_valido(cols)
 
-        # 1. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
-        val_trazione, data_trazione = estrai_ultimo_test_valido(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
-
-        # 2. Dita Concentrica (picco max tra DX e SX)
+        # 1. Dita Concentrica (picco max tra DX e SX)
         val_conc, data_conc = estrai_ultimo_test_valido(['Concentrica DX', 'Concentrica SX'])
 
-        # 3. Dita Eccentrica (picco max tra DX e SX)
+        # 2. Dita Eccentrica (picco max tra DX e SX)
         val_ecc, data_ecc = estrai_ultimo_test_valido(['Eccentrica DX', 'Eccentrica SX'])
+
+        # 3. Dita Stese (picco max tra DX e SX)
+        stese_picco, d_stese = ottieni_ultimo_valore(df_atleta, ['Stese DX', 'Stese SX'])
 
         # 4. Endurance 30s (picco max tra DX e SX)
         cols_end_picco = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "picco" in c.lower()]
@@ -709,15 +709,18 @@ with tab1:
         cols_cf = [c for c in df_atleta.columns if "critical force" in c.lower()]
         val_cf, data_cf = estrai_ultimo_test_valido(cols_cf)
 
+        # 6. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
+        val_trazione, data_trazione = estrai_ultimo_test_valido(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
+
         # Conversione in Forza Relativa (% Bodyweight) con l'ultimo peso noto
-        categorie = ['Trazione 1RM', 'Dita Concentrica', 'Dita Eccentrica', 'Endurance 30s', 'Critical Force 7:3']
-        valori_kg = [val_trazione, val_conc, val_ecc, val_end, val_cf]
-        date_test = [data_trazione or "N/D", data_conc or "N/D", data_ecc or "N/D", data_end or "N/D", data_cf or "N/D"]
+        categorie = ['Dita Concentrica', 'Dita Eccentrica', 'Dita Stese', 'Endurance 30s', 'Critical Force 7:3', 'Trazione 1RM']
+        valori_kg = [val_conc, val_ecc, stese_picco, val_end, val_cf, val_trazione]
+        date_test = [data_conc or "N/D", data_ecc or "N/D", d_stese or "N/D", data_end or "N/D", data_cf or "N/D", data_trazione or "N/D"]
         valori_perc = [(v / peso_kpi) * 100 if v > 0 else 0.0 for v in valori_kg]
-        perc_trazione, perc_conc, perc_ecc, perc_end, perc_cf = valori_perc
+        perc_conc, perc_ecc, perc_stese, perc_end, perc_cf, perc_trazione = valori_perc
 
         if not any(v > 0 for v in valori_kg):
-            st.info("Nessun dato valido registrato nello storico per le 5 macro-categorie dello Spider Chart.")
+            st.info("Nessun dato valido registrato nello storico per le 6 macro-categorie dello Spider Chart.")
         else:
             # Fissaggio dinamico della scala radiale
             max_val_rilevato = max(valori_perc) if valori_perc else 0.0
@@ -777,11 +780,12 @@ with tab1:
             # Didascalia con le date reali degli ultimi test validi
             st.caption(
                 f"Profilo basato sugli ultimi test validi — "
-                f"Trazione 1RM: {data_trazione or 'N/D'} | "
                 f"Dita Concentrica: {data_conc or 'N/D'} | "
                 f"Dita Eccentrica: {data_ecc or 'N/D'} | "
+                f"Dita Stese: {d_stese or 'N/D'} | "
                 f"Endurance 30s: {data_end or 'N/D'} | "
-                f"Critical Force 7:3: {data_cf or 'N/D'}"
+                f"Critical Force 7:3: {data_cf or 'N/D'} | "
+                f"Trazione 1RM: {data_trazione or 'N/D'}"
             )
 
             # --- VALUTAZIONE BIOMECCANICA & CLINICA (CHECK SEPARATI) ---
@@ -860,7 +864,55 @@ with tab1:
             else:
                 st.caption("3. Check Metabolico: Nessun test Endurance 30s registrato nello storico dell'atleta.")
 
-            # --- 4. ANALISI RFD (CONTACT STRENGTH SUI TEMPI DI CONTATTO REALI) ---
+            # 4. Check Equilibrio Stile di Presa (Mezza Crimpatura vs Stese)
+            if stese_picco > 0 and val_conc > 0:
+                ratio_presa = (stese_picco / val_conc) * 100
+                d_info_presa = f"(Stese: {d_stese or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                if ratio_presa >= 85.0:
+                    st.success(
+                        f"**4. Equilibrio Stile di Presa — Bilanciamento Fisiologico Ottimale {d_info_presa}:** "
+                        f"(Stese: {stese_picco:.1f} kg | Concentrica: {val_conc:.1f} kg). "
+                        f"La forza a dita stese è il **{ratio_presa:.1f}%** della mezza crimpatura. "
+                        f"Ottimo equilibrio tra flessore profondo (FDP) e superficiale (FDS), rischio infortuni ridotto."
+                    )
+                else:
+                    st.warning(
+                        f"**4. Equilibrio Stile di Presa — Dominanza Mezza Crimpatura {d_info_presa}:** "
+                        f"(Stese: {stese_picco:.1f} kg | Concentrica: {val_conc:.1f} kg). "
+                        f"La forza a dita stese è solo il **{ratio_presa:.1f}%** della mezza crimpatura (target > 85%). "
+                        f"L'atleta è iper-specializzato sull'ingaggio del pollice/lumbricali. "
+                        f"Si consiglia di integrare sospensioni a dita stese (drag) per rinforzare il Flessore Profondo (FDP) e scaricare le pulegge A2/A4."
+                    )
+            elif stese_picco > 0 or val_conc > 0:
+                st.info("4. Equilibrio Stile di Presa: Rilevato solo uno tra i test di Dita Concentrica e Dita Stese; eseguire entrambi i test per valutare il bilanciamento FDP/FDS.")
+            else:
+                st.caption("4. Equilibrio Stile di Presa: Nessun dato per Dita Concentrica e Stese nello storico.")
+
+            # 5. Check Sistema Aerobico (Critical Force vs Dita Concentrica)
+            if val_cf > 0 and val_conc > 0:
+                ratio_cf = (val_cf / val_conc) * 100
+                d_info_cf = f"(Critical Force: {data_cf or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                if ratio_cf >= 45.0:
+                    st.success(
+                        f"**5. Check Sistema Aerobico — Efficienza Ossidativa Ottimale {d_info_cf}:** "
+                        f"(Critical Force: {val_cf:.1f} kg | Concentrica: {val_conc:.1f} kg). "
+                        f"La Critical Force è al **{ratio_cf:.1f}%** della forza massima. "
+                        f"L'atleta ha un'eccellente capillarizzazione locale e smaltimento del lattato, ideale per le vie lunghe di continuità."
+                    )
+                else:
+                    st.info(
+                        f"**5. Check Sistema Aerobico — Carenza Ossidativa / Rischio Ghisa {d_info_cf}:** "
+                        f"(Critical Force: {val_cf:.1f} kg | Concentrica: {val_conc:.1f} kg). "
+                        f"La Critical Force è solo al **{ratio_cf:.1f}%** della forza massima (target > 45%). "
+                        f"L'avambraccio si affida troppo al sistema anaerobico. È consigliato inserire allenamenti ARC "
+                        f"(Aerobic Restoration and Capillarity) e continuità a bassa intensità per migliorare il recupero in via."
+                    )
+            elif val_cf > 0 or val_conc > 0:
+                st.info("5. Check Sistema Aerobico: Rilevato solo uno tra i test di Critical Force e Dita Concentrica; eseguire entrambi i test per il calcolo del ratio aerobico.")
+            else:
+                st.caption("5. Check Sistema Aerobico: Nessun dato per Critical Force e Dita Concentrica nello storico.")
+
+            # --- 6. ANALISI RFD (CONTACT STRENGTH SUI TEMPI DI CONTATTO REALI) ---
             cols_rfd = [c for c in df_atleta.columns if "rfd" in c.lower() and "dita" in c.lower()]
             if not cols_rfd:
                 cols_rfd = [c for c in df_atleta.columns if "rfd" in c.lower() and not "pull" in c.lower()]
@@ -897,7 +949,7 @@ with tab1:
                     diagnosi_rfd = "La forza massimale è presente ma sale troppo lentamente: l'atleta rischia di perdere la presa nei primi 200ms prima di aver sviluppato la tensione utile."
 
                 st.markdown("---")
-                st.markdown("##### 4. Riquadro Dedicato: Valori RFD & Contact Strength in Chiaro")
+                st.markdown("##### 6. Riquadro Dedicato: Valori RFD & Contact Strength in Chiaro")
                 col_rfd1, col_rfd2, col_rfd3 = st.columns(3)
                 with col_rfd1:
                     delta_lati = f"DX: {rfd_dx_val:.1f} | SX: {rfd_sx_val:.1f}" if (rfd_dx_val > 0 and rfd_sx_val > 0) else None
@@ -930,16 +982,18 @@ with tab1:
 
                 st.markdown(
                     f"<div style='background-color: #f8fafc; border-left: 4px solid #8b5cf6; padding: 12px 16px; border-radius: 6px; margin-top: 10px; font-size: 0.92em; color: #1e293b; line-height: 1.5;'>"
-                    f"<b>Diagnosi Contact Strength [Test: {d_rfd or 'N/D'}]:</b> {badge_rfd}<br>"
+                    f"<b>Diagnosi Contact Strength [{d_rfd or 'N/D'}]:</b> {badge_rfd}<br>"
                     f"Nel tempo di contatto reale di un movimento dinamico (<b>200 ms</b>), l'atleta genera <b>{forza_contatto_200ms:.1f} kg</b>"
                     f"{f' ({perc_espressa_200ms:.1f}% della forza massima concentrica di {val_conc:.1f} kg)' if perc_espressa_200ms else ''}. "
                     f"{diagnosi_rfd}{asim_rfd_txt}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
+            else:
+                st.caption("6. Nessun test RFD (Forza Rapida Dita) disponibile nello storico dell'atleta.")
 
     st.markdown("---")
-
+    
     st.markdown("### I Tuoi Record Personali (All-Time)")
     st.markdown("<div class='coach-tip'><b>L'Occhio del Coach:</b> I record più importanti sono quelli relativi al tuo peso corporeo (% BW). Nel Bouldering moderno, un target d'élite è superare l'<b>80% BW</b> di trazione a dito singolo (Concentrica) e il <b>50-60% BW</b> di zavorra nel Pull-up. Un divario troppo alto tra le due evidenzia una debolezza nella trasmissione della forza sulla parete.</div>", unsafe_allow_html=True)
     
