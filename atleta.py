@@ -16,6 +16,27 @@ def prepara_df_visualizzazione(df_in):
             df_out[col] = df_out[col].apply(lambda x: "" if pd.isna(x) else str(x).strip())
     return df_out
 
+def parse_date_eu(val):
+    if pd.isna(val) or val is None:
+        return pd.NaT
+    if isinstance(val, (pd.Timestamp, pd.DatetimeIndex)):
+        return val
+    s = str(val).strip().split(' ')[0].replace('_', '-')
+    if not s or s.lower() in ['nan', 'nat', 'none', '']:
+        return pd.NaT
+    m_iso = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', s)
+    if m_iso:
+        y, p1, p2 = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        if p1 > 12 and p2 <= 12: # Tindeq hardware con formato invertito YYYY-DD-MM
+            return pd.to_datetime(f"{y:04d}-{p2:02d}-{p1:02d}", format='%Y-%m-%d', errors='coerce')
+        return pd.to_datetime(f"{y:04d}-{p1:02d}-{p2:02d}", format='%Y-%m-%d', errors='coerce')
+    m_eu = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$', s)
+    if m_eu:
+        d, m, y = int(m_eu.group(1)), int(m_eu.group(2)), int(m_eu.group(3))
+        if y < 100: y += 2000
+        return pd.to_datetime(f"{y:04d}-{m:02d}-{d:02d}", format='%Y-%m-%d', errors='coerce')
+    return pd.to_datetime(s, errors='coerce')
+
 CARTELLA_ARCHIVIO = "Archivio_CSV"
 
 # --- CONNESSIONE CLOUD SICURA ---
@@ -360,7 +381,7 @@ def leggi_curva_csv(file_sel):
 
 df, credenziali = carica_dati_cloud()
 if 'Data_dt' not in df.columns and 'Data' in df.columns:
-    df['Data_dt'] = pd.to_datetime(df['Data'], errors='coerce')
+    df['Data_dt'] = df['Data'].apply(parse_date_eu)
 
 atleti_lista = sorted(df['Atleta'].dropna().unique().tolist()) if 'Atleta' in df.columns else []
 
@@ -512,7 +533,16 @@ with col_top_h:
         st.title("Vetrina Atleta — Vista Admin")
         col_sel_at, col_sz = st.columns([2, 1])
         with col_sel_at:
-            atleta_selezionato = st.selectbox("Seleziona Profilo Atleta:", atleti_lista, key="sel_coach_atleta")
+            mostra_inattivi = st.checkbox("Mostra anche atleti inattivi (> 2 anni)", value=False, key="atleta_mostra_inattivi")
+            lista_atleti_sel = atleti_lista
+            if not mostra_inattivi and 'Data_dt' in df.columns and 'Atleta' in df.columns:
+                soglia_attivi = pd.Timestamp.now() - pd.DateOffset(years=2)
+                ultimi_test = df.groupby('Atleta')['Data_dt'].max()
+                atleti_attivi = set(ultimi_test[ultimi_test >= soglia_attivi].index)
+                lista_filtrata = [a for a in atleti_lista if a in atleti_attivi]
+                if lista_filtrata:
+                    lista_atleti_sel = lista_filtrata
+            atleta_selezionato = st.selectbox("Seleziona Profilo Atleta:", lista_atleti_sel, key="sel_coach_atleta")
         with col_sz:
             dim_grafico = st.radio("Dimensione Grafici:", ["Compatta (Piccola)", "Standard (Grande)"], horizontal=True, key="sel_dim_grafico")
     else:
@@ -544,7 +574,11 @@ with st.sidebar:
         st.rerun()
 
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
-df_atleta = df[df['Atleta'] == atleta_selezionato].sort_values(by='Data_dt').copy()
+df_atleta = df[df['Atleta'] == atleta_selezionato].copy()
+if 'Data' in df_atleta.columns:
+    df_atleta['Data'] = pd.to_datetime(df_atleta['Data'].apply(parse_date_eu), errors='coerce')
+    df_atleta = df_atleta.dropna(subset=['Data']).sort_values(by='Data').copy()
+    df_atleta['Data_dt'] = df_atleta['Data']
 
 # --- FUNZIONI DI ORDINAMENTO CRONOLOGICO MENÙ ---
 def estrai_data_per_ordinamento(chiave_tendina):
@@ -692,15 +726,17 @@ with tab1:
         # 3. Dita Stese (picco max tra DX e SX)
         stese_picco, d_stese = ottieni_ultimo_valore(df_atleta, ['Stese DX', 'Stese SX'])
 
-        # 4. Endurance 30s (picco max tra DX e SX)
-        cols_end_picco = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "picco" in c.lower()]
-        if not cols_end_picco:
-            cols_end_picco = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower() and "picco" in c.lower()]
-        if not cols_end_picco:
-            cols_end_picco = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and ("dx" in c.lower() or "sx" in c.lower())]
-        if not cols_end_picco:
-            cols_end_picco = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower()]
-        val_end, data_end = estrai_ultimo_test_valido(cols_end_picco)
+        # 4. Endurance 30s (Forza Media tra DX e SX)
+        cols_end_media = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "forza media" in c.lower()]
+        if not cols_end_media:
+            cols_end_media = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower() and "media" in c.lower()]
+        if not cols_end_media:
+            cols_end_media = ["Endurance 30'' DX - Forza Media", "Endurance 30'' SX - Forza Media"]
+        val_end, data_end = estrai_ultimo_test_valido(cols_end_media)
+        if val_end <= 0:
+            cols_end_backup = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "picco" in c.lower()]
+            if cols_end_backup:
+                val_end, data_end = estrai_ultimo_test_valido(cols_end_backup)
 
         # 5. Critical Force 7:3 (picco max tra DX e SX)
         cols_cf = [c for c in df_atleta.columns if "critical force" in c.lower()]
@@ -710,7 +746,7 @@ with tab1:
         val_trazione, data_trazione = estrai_ultimo_test_valido(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
 
         # Conversione in Forza Relativa (% Bodyweight) con l'ultimo peso noto
-        categorie = ['Dita Concentrica', 'Dita Eccentrica', 'Dita Stese', 'Endurance 30s', 'Critical Force 7:3', 'Trazione 1RM']
+        categorie = ['Dita Concentrica', 'Dita Eccentrica', 'Dita Stese', 'Endurance 30s (Forza Media)', 'Critical Force 7:3', 'Trazione 1RM']
         valori_kg = [val_conc, val_ecc, stese_picco, val_end, val_cf, val_trazione]
         date_test = [data_conc or "N/D", data_ecc or "N/D", d_stese or "N/D", data_end or "N/D", data_cf or "N/D", data_trazione or "N/D"]
         valori_perc = [(v / peso_kpi) * 100 if v > 0 else 0.0 for v in valori_kg]
@@ -781,7 +817,7 @@ with tab1:
                 f"Dita Concentrica: {data_conc or 'N/D'} | "
                 f"Dita Eccentrica: {data_ecc or 'N/D'} | "
                 f"Dita Stese: {d_stese or 'N/D'} | "
-                f"Endurance 30s: {data_end or 'N/D'} | "
+                f"Endurance 30s (Forza Media): {data_end or 'N/D'} | "
                 f"Critical Force 7:3: {data_cf or 'N/D'} | "
                 f"Trazione 1RM: {data_trazione or 'N/D'}"
             )
@@ -836,31 +872,31 @@ with tab1:
             elif perc_trazione > 0 or perc_conc > 0:
                 st.info("2. Check Motore vs Trasmissione: Dati di Trazione 1RM o Concentrica parziali nello storico per il calcolo comparativo.")
 
-            # 3. Check Metabolico (Endurance 30s vs Dita Concentrica)
+            # 3. Check Metabolico (Endurance 30s Forza Media vs Dita Concentrica)
             if perc_end > 0 and perc_conc > 0:
                 ratio_end = (perc_end / perc_conc) * 100
-                d_info_end = f"(Endurance: {data_end or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                d_info_end = f"(Endurance Forza Media: {data_end or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
                 if perc_end < (0.50 * perc_conc):
                     st.warning(
                         f"**3. Check Metabolico — Crollo Capacità Lattacida/Endurance {d_info_end}:** A fronte di una buona forza massima delle dita "
                         f"({perc_conc:.1f}% BW), si osserva una caduta marcata della curva nei test di 30 secondi "
-                        f"(Endurance 30s a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica). "
+                        f"(Endurance 30s (Forza Media) a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica). "
                         f"L'atleta esaurisce precocemente le scorte glicolitiche locali sulle prese; inserire blocchi di ripetizioni sub-massimali e capacità lattacida specifica."
                     )
                 elif perc_end >= (0.70 * perc_conc):
                     st.success(
                         f"**3. Check Metabolico — Ottima Resistenza Locale {d_info_end}:** L'atleta mantiene un'alta percentuale di espressione di forza "
-                        f"(Endurance 30s a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica) anche in regime di accumulo lattacido (Test 30s)."
+                        f"(Endurance 30s (Forza Media) a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica) anche in regime di accumulo lattacido (Test 30s)."
                     )
                 else:
                     st.info(
-                        f"**3. Check Metabolico — Resistenza Intermedia {d_info_end}:** L'Endurance 30s si attesta a **{perc_end:.1f}% BW** "
+                        f"**3. Check Metabolico — Resistenza Intermedia {d_info_end}:** L'Endurance 30s (Forza Media) si attesta a **{perc_end:.1f}% BW** "
                         f"(pari al **{ratio_end:.1f}%** del massimale concentrico). Capacità anaerobica nella norma, con margini di progressione sulla capillarizzazione locale."
                     )
             elif perc_end > 0:
-                st.info(f"3. Check Metabolico: Endurance 30s registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {data_end or 'N/D'}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
+                st.info(f"3. Check Metabolico: Endurance 30s (Forza Media) registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {data_end or 'N/D'}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
             else:
-                st.caption("3. Check Metabolico: Nessun test Endurance 30s registrato nello storico dell'atleta.")
+                st.caption("3. Check Metabolico: Nessun test Endurance 30s (Forza Media) registrato nello storico dell'atleta.")
 
             # 4. Check Equilibrio Stile di Presa (Mezza Crimpatura vs Stese)
             if stese_picco > 0 and val_conc > 0:
@@ -1333,36 +1369,64 @@ with tab4:
         chiave_testo = next((k for k in TESTI_FISIOLOGIA.keys() if k.lower() in test_sel.lower()), None)
         if chiave_testo: st.markdown(f"<div class='bio-info-box'><b>Anatomia e Funzione:</b><br>{TESTI_FISIOLOGIA[chiave_testo].replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
             
-        fig, ax = plt.subplots(figsize=fig_size)
+        fig = go.Figure()
         match_dx = [c for c in df_atleta.columns if c.replace(' DX', '') == test_sel and ' DX' in c]
         match_sx = [c for c in df_atleta.columns if c.replace(' SX', '') == test_sel and ' SX' in c]
         
-        def plot_linea(col_nome, colore, label):
-            df_plot = df_atleta.dropna(subset=[col_nome])
+        unita_misura = "% BW" if modalita == "Forza Relativa (% BW)" else "Forza (kg)"
+
+        def plot_linea_plotly(col_nome, colore, label):
+            df_plot = df_atleta.dropna(subset=[col_nome]).copy()
             if not df_plot.empty:
                 y_vals = pd.to_numeric(df_plot[col_nome].astype(str).str.replace(',', '.'), errors='coerce')
                 if modalita == "Forza Relativa (% BW)" and 'Peso Corporeo' in df_plot.columns:
                     pesi = pd.to_numeric(df_plot['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
                     y_vals = (y_vals / pesi) * 100
-                ax.plot(df_plot['Data'], y_vals, marker='o', color=colore, label=label, linewidth=2)
-                return df_plot, y_vals
-            return None, None
+                fig.add_trace(go.Scatter(
+                    x=df_plot['Data'],
+                    y=y_vals,
+                    mode='lines+markers',
+                    name=label,
+                    line=dict(color=colore, width=2.5),
+                    marker=dict(size=8, color=colore),
+                    hovertemplate=f"<b>%{{x|%d/%m/%Y}}</b><br>{label}: %{{y:.1f}} {unita_misura}<extra></extra>"
+                ))
+                return True
+            return False
             
         if match_dx and match_sx:
-            df_dx, y_dx = plot_linea(match_dx[0], '#3b82f6', 'Lato Destro (DX)')
-            df_sx, y_sx = plot_linea(match_sx[0], '#10b981', 'Lato Sinistro (SX)')
-            ax.set_ylabel("% BW" if modalita == "Forza Relativa (% BW)" else "Forza (kg)")
-            ax.legend(); ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=45, ha='right')
-            st.pyplot(fig, use_container_width=True)
+            plot_linea_plotly(match_dx[0], '#3b82f6', 'Lato Destro (DX)')
+            plot_linea_plotly(match_sx[0], '#10b981', 'Lato Sinistro (SX)')
         else:
-            plot_linea(test_sel, '#3b82f6', test_sel_ui)
-            ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=45, ha='right')
-            st.pyplot(fig, use_container_width=True)
+            plot_linea_plotly(test_sel, '#3b82f6', test_sel_ui)
+
+        fig.update_layout(
+            title=dict(
+                text=f"📈 Andamento Storico — {test_sel_ui} ({unita_misura})",
+                font=dict(size=16)
+            ),
+            xaxis_title="Data Test",
+            yaxis_title=unita_misura,
+            hovermode='x unified',
+            template='plotly_white',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=40, r=40, t=60, b=40),
+            height=420 if dim_grafico == "Standard (Grande)" else 300
+        )
+        fig.update_xaxes(
+            type='date',
+            tickformat='%d/%m/%Y',
+            gridcolor='rgba(0,0,0,0.08)'
+        )
+        fig.update_yaxes(
+            gridcolor='rgba(0,0,0,0.08)'
+        )
+        st.plotly_chart(fig, use_container_width=True)
             
         with st.expander("Tabella Dati Completa (Record evidenziati in DarkGoldenRod)", expanded=False):
             df_tab4 = df_atleta.drop(columns=['Data_dt', '_Data_Sort'], errors='ignore').dropna(axis=1, how='all').copy()
+            if 'Data' in df_tab4.columns and pd.api.types.is_datetime64_any_dtype(df_tab4['Data']):
+                df_tab4['Data'] = df_tab4['Data'].dt.strftime('%d/%m/%Y')
             colonne_numeriche = []
             for c in df_tab4.columns:
                 if c in ['Data', 'DataStr', 'Atleta', 'Gruppo']:
@@ -1420,12 +1484,38 @@ with tab5:
                 
                 df_mvst['Integrata %'] = (pd.concat([s_iso_dx, s_iso_sx], axis=1).max(axis=1) / s_peso) * 100
 
-                fig, ax = plt.subplots(figsize=fig_size)
-                ax.plot(df_mvst['Data'], df_mvst['Motore %'], label='Motore (Trazione Pull-Up)', marker='o', color='#3b82f6')
-                ax.plot(df_mvst['Data'], df_mvst['Trasmissione %'], label='Trasmissione (Concentrica Max Dita)', marker='o', color='#8b5cf6')
-                ax.set_ylabel("% Bodyweight"); ax.legend(); ax.grid(True, alpha=0.3)
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig, use_container_width=True)
+                fig_mvst = go.Figure()
+                fig_mvst.add_trace(go.Scatter(
+                    x=df_mvst['Data'],
+                    y=df_mvst['Motore %'],
+                    mode='lines+markers',
+                    name='Motore (Trazione Pull-Up)',
+                    line=dict(color='#3b82f6', width=2.5),
+                    marker=dict(size=7),
+                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Motore: %{y:.1f}% BW<extra></extra>"
+                ))
+                fig_mvst.add_trace(go.Scatter(
+                    x=df_mvst['Data'],
+                    y=df_mvst['Trasmissione %'],
+                    mode='lines+markers',
+                    name='Trasmissione (Concentrica Max Dita)',
+                    line=dict(color='#8b5cf6', width=2.5),
+                    marker=dict(size=7),
+                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Trasmissione: %{y:.1f}% BW<extra></extra>"
+                ))
+                fig_mvst.update_layout(
+                    title="Trazione (Motore) vs Dita (Trasmissione)",
+                    xaxis_title="Data",
+                    yaxis_title="% Bodyweight",
+                    hovermode='x unified',
+                    template='plotly_white',
+                    height=400 if dim_grafico == "Standard (Grande)" else 300,
+                    margin=dict(l=40, r=40, t=50, b=40),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                fig_mvst.update_xaxes(type='date', tickformat='%d/%m/%Y', gridcolor='rgba(0,0,0,0.08)')
+                fig_mvst.update_yaxes(gridcolor='rgba(0,0,0,0.08)')
+                st.plotly_chart(fig_mvst, use_container_width=True)
         
         st.markdown("#### 2. Prevenzione Infortuni Strutturali")
         st.markdown("<div class='coach-tip'><b>Alert Clinico:</b> La forza Eccentrica (passiva) rappresenta il 'freno a mano' e la tolleranza limite dei tuoi tendini e pulegge. Se la forza Concentrica (il 'motore' attivo) la supera (o arriva al 95%), l'infortunio è statisticamente molto vicino. In tal caso, si scala il carico e si prescrivono isometrie Yielding per rinforzare i tessuti connettivi.</div>", unsafe_allow_html=True)
@@ -1449,16 +1539,56 @@ with tab5:
 
         st.markdown("#### 3. Zavorra Inerziale vs Forza Erogata")
         st.markdown("<div class='coach-tip'><b>Rapporto Peso/Potenza:</b> Questa visualizzazione a doppio asse è cruciale. Se la linea verde (Forza) sale, ma sale anche la linea rossa (Peso Corporeo), potresti non sentire reali benefici su roccia. Il miglioramento ideale vede la linea verde salire mentre la rossa resta stabile o scende leggermente.</div>", unsafe_allow_html=True)
-        if 'Pull-Up 1RM Calcolata' in df_bio.columns:
-            df_fz = df_bio.dropna(subset=['Pull-Up 1RM Calcolata']).copy()
+        col_pull_fz = 'Pull-Up 1RM Calcolata' if 'Pull-Up 1RM Calcolata' in df_bio.columns else ('Pull-Up 1RM Reale' if 'Pull-Up 1RM Reale' in df_bio.columns else None)
+        if col_pull_fz:
+            df_fz = df_bio.dropna(subset=[col_pull_fz]).copy()
             if not df_fz.empty:
-                fig, ax1 = plt.subplots(figsize=fig_size)
-                ax2 = ax1.twinx()
-                s_fz = pd.to_numeric(df_fz['Pull-Up 1RM Calcolata'].astype(str).str.replace(',', '.'), errors='coerce')
+                s_fz = pd.to_numeric(df_fz[col_pull_fz].astype(str).str.replace(',', '.'), errors='coerce')
                 s_bw = pd.to_numeric(df_fz['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
-                ax1.plot(df_fz['Data'], s_fz, marker='o', linestyle='-', label='Forza Erogata (kg)', color='#10b981')
-                ax2.plot(df_fz['Data'], s_bw, marker='s', linestyle='--', label='Peso Corporeo (kg)', color='#ef4444')
-                ax1.set_ylabel('Forza (kg)', color='#10b981'); ax2.set_ylabel('Peso Corporeo (kg)', color='#ef4444')
-                ax1.grid(True, alpha=0.3)
-                plt.setp(ax1.get_xticklabels(), rotation=45, ha="right")
-                st.pyplot(fig, use_container_width=True)
+                fig_fz = go.Figure()
+                fig_fz.add_trace(go.Scatter(
+                    x=df_fz['Data'],
+                    y=s_fz,
+                    mode='lines+markers',
+                    name='Forza Erogata (kg)',
+                    line=dict(color='#10b981', width=2.5),
+                    marker=dict(size=7),
+                    yaxis='y1',
+                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Forza: %{y:.1f} kg<extra></extra>"
+                ))
+                fig_fz.add_trace(go.Scatter(
+                    x=df_fz['Data'],
+                    y=s_bw,
+                    mode='lines+markers',
+                    name='Peso Corporeo (kg)',
+                    line=dict(color='#ef4444', width=2.5, dash='dash'),
+                    marker=dict(size=7, symbol='square'),
+                    yaxis='y2',
+                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Peso Corporeo: %{y:.1f} kg<extra></extra>"
+                ))
+                fig_fz.update_layout(
+                    title="Zavorra Inerziale vs Forza Erogata",
+                    xaxis=dict(
+                        title=dict(text="Data"),
+                        type='date',
+                        tickformat='%d/%m/%Y',
+                        gridcolor='rgba(0,0,0,0.08)'
+                    ),
+                    yaxis=dict(
+                        title=dict(text="Forza (kg)", font=dict(color='#10b981')),
+                        tickfont=dict(color='#10b981'),
+                        gridcolor='rgba(0,0,0,0.08)'
+                    ),
+                    yaxis2=dict(
+                        title=dict(text="Peso Corporeo (kg)", font=dict(color='#ef4444')),
+                        tickfont=dict(color='#ef4444'),
+                        overlaying='y',
+                        side='right'
+                    ),
+                    hovermode='x unified',
+                    template='plotly_white',
+                    height=400 if dim_grafico == "Standard (Grande)" else 300,
+                    margin=dict(l=40, r=40, t=50, b=40),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_fz, use_container_width=True)
