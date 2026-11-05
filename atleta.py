@@ -52,7 +52,7 @@ TESTI_FISIOLOGIA = {
     "Critical Force 7:3": "Maximum Finger Repeaters (7:3x25)\nLa Critical Force rappresenta il massimo livello di forza sostenibile in uno stato di equilibrio metabolico."
 }
 
-st.set_page_config(page_title="Vetrina Atleta", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="Vetrina Atleta", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
     /* 5. Sfondo Globale: Chiaro, omogeneo e neutrale ovunque */
@@ -537,6 +537,7 @@ with col_top_out:
             st.rerun()
 
 with st.sidebar:
+       st.sidebar.image("logo_asd.png", use_container_width=True)
        st.markdown("### Azioni")
        if st.button("Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
         st.cache_data.clear()
