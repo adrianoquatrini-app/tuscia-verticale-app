@@ -741,11 +741,11 @@ with tab1:
                         range=[0, max_scala],
                         ticksuffix="%",
                         tickfont=dict(size=11, color="#475569"),
-                        gridcolor="#cbd5e1"
+                        gridcolor="#cbd5e1",
                     ),
                     angularaxis=dict(
                         tickfont=dict(size=12, color="#0f172a", family="Inter, sans-serif"),
-                        gridcolor="#e2e8f0"
+                        gridcolor="#e2e8f0",
                     ),
                     bgcolor="rgba(248, 250, 252, 0.5)"
                 ),
@@ -755,9 +755,10 @@ with tab1:
                     x=0.5,
                     xanchor='center'
                 ),
-                margin=dict(l=40, r=40, t=50, b=40),
+                margin=dict(l=85, r=85, t=50, b=40),  # Aumenta i margini laterali per non tagliare le etichette di testo lunghe
                 showlegend=False,
-                height=450
+                height=450,
+                dragmode=False
             )
 
             fig_spider = go.Figure(
@@ -775,7 +776,7 @@ with tab1:
                 layout=layout_radar
             )
 
-            st.plotly_chart(fig_spider, use_container_width=True)
+            st.plotly_chart(fig_spider, use_container_width=True, config={'displayModeBar': False})
 
             # Didascalia con le date reali degli ultimi test validi
             st.caption(
