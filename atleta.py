@@ -537,11 +537,8 @@ with col_top_out:
             st.rerun()
 
 with st.sidebar:
-    try:
-        st.sidebar.image("logo_asd.png", use_container_width=True)
-    except:
-        pass
-    st.markdown("### Azioni")
+       st.sidebar.image("logo_asd.png", use_container_width=True)
+       st.markdown("### Azioni")
     if st.button("Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
