@@ -52,7 +52,7 @@ TESTI_FISIOLOGIA = {
     "Critical Force 7:3": "Maximum Finger Repeaters (7:3x25)\nLa Critical Force rappresenta il massimo livello di forza sostenibile in uno stato di equilibrio metabolico."
 }
 
-st.set_page_config(page_title="Vetrina Atleta", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Vetrina Atleta", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
     /* 5. Sfondo Globale: Chiaro, omogeneo e neutrale ovunque */
