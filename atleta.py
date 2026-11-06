@@ -20,7 +20,7 @@ def parse_date_eu(val):
     if pd.isna(val) or val is None:
         return pd.NaT
     if isinstance(val, (pd.Timestamp, pd.DatetimeIndex)):
-        return val
+        return val.normalize() if isinstance(val, pd.Timestamp) else val
     s = str(val).strip().split(' ')[0].replace('_', '-')
     if not s or s.lower() in ['nan', 'nat', 'none', '']:
         return pd.NaT
@@ -28,14 +28,18 @@ def parse_date_eu(val):
     if m_iso:
         y, p1, p2 = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
         if p1 > 12 and p2 <= 12: # Tindeq hardware con formato invertito YYYY-DD-MM
-            return pd.to_datetime(f"{y:04d}-{p2:02d}-{p1:02d}", format='%Y-%m-%d', errors='coerce')
-        return pd.to_datetime(f"{y:04d}-{p1:02d}-{p2:02d}", format='%Y-%m-%d', errors='coerce')
+            res = pd.to_datetime(f"{y:04d}-{p2:02d}-{p1:02d}", format='%Y-%m-%d', errors='coerce')
+        else:
+            res = pd.to_datetime(f"{y:04d}-{p1:02d}-{p2:02d}", format='%Y-%m-%d', errors='coerce')
+        return res.normalize() if pd.notna(res) else res
     m_eu = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$', s)
     if m_eu:
         d, m, y = int(m_eu.group(1)), int(m_eu.group(2)), int(m_eu.group(3))
         if y < 100: y += 2000
-        return pd.to_datetime(f"{y:04d}-{m:02d}-{d:02d}", format='%Y-%m-%d', errors='coerce')
-    return pd.to_datetime(s, errors='coerce')
+        res = pd.to_datetime(f"{y:04d}-{m:02d}-{d:02d}", format='%Y-%m-%d', errors='coerce')
+        return res.normalize() if pd.notna(res) else res
+    res = pd.to_datetime(s, dayfirst=True, errors='coerce')
+    return res.normalize() if pd.notna(res) else res
 
 CARTELLA_ARCHIVIO = "Archivio_CSV"
 
@@ -576,7 +580,7 @@ with st.sidebar:
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
 df_atleta = df[df['Atleta'] == atleta_selezionato].copy()
 if 'Data' in df_atleta.columns:
-    df_atleta['Data'] = pd.to_datetime(df_atleta['Data'].apply(parse_date_eu), errors='coerce')
+    df_atleta['Data'] = pd.to_datetime(df_atleta['Data'].apply(parse_date_eu), errors='coerce').dt.normalize()
     df_atleta = df_atleta.dropna(subset=['Data']).sort_values(by='Data').copy()
     df_atleta['Data_dt'] = df_atleta['Data']
 
@@ -1411,17 +1415,21 @@ with tab4:
             template='plotly_white',
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=40, r=40, t=60, b=40),
-            height=420 if dim_grafico == "Standard (Grande)" else 300
+            height=420 if dim_grafico == "Standard (Grande)" else 300,
+            dragmode=False
         )
         fig.update_xaxes(
             type='date',
             tickformat='%d/%m/%Y',
+            hoverformat='%d/%m/%Y',
+            fixedrange=True,
             gridcolor='rgba(0,0,0,0.08)'
         )
         fig.update_yaxes(
+            fixedrange=True,
             gridcolor='rgba(0,0,0,0.08)'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             
         with st.expander("Tabella Dati Completa (Record evidenziati in DarkGoldenRod)", expanded=False):
             df_tab4 = df_atleta.drop(columns=['Data_dt', '_Data_Sort'], errors='ignore').dropna(axis=1, how='all').copy()
@@ -1511,11 +1519,12 @@ with tab5:
                     template='plotly_white',
                     height=400 if dim_grafico == "Standard (Grande)" else 300,
                     margin=dict(l=40, r=40, t=50, b=40),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    dragmode=False
                 )
-                fig_mvst.update_xaxes(type='date', tickformat='%d/%m/%Y', gridcolor='rgba(0,0,0,0.08)')
-                fig_mvst.update_yaxes(gridcolor='rgba(0,0,0,0.08)')
-                st.plotly_chart(fig_mvst, use_container_width=True)
+                fig_mvst.update_xaxes(type='date', tickformat='%d/%m/%Y', hoverformat='%d/%m/%Y', fixedrange=True, gridcolor='rgba(0,0,0,0.08)')
+                fig_mvst.update_yaxes(fixedrange=True, gridcolor='rgba(0,0,0,0.08)')
+                st.plotly_chart(fig_mvst, use_container_width=True, config={'displayModeBar': False})
         
         st.markdown("#### 2. Prevenzione Infortuni Strutturali")
         st.markdown("<div class='coach-tip'><b>Alert Clinico:</b> La forza Eccentrica (passiva) rappresenta il 'freno a mano' e la tolleranza limite dei tuoi tendini e pulegge. Se la forza Concentrica (il 'motore' attivo) la supera (o arriva al 95%), l'infortunio è statisticamente molto vicino. In tal caso, si scala il carico e si prescrivono isometrie Yielding per rinforzare i tessuti connettivi.</div>", unsafe_allow_html=True)
@@ -1568,20 +1577,25 @@ with tab5:
                 ))
                 fig_fz.update_layout(
                     title="Zavorra Inerziale vs Forza Erogata",
+                    dragmode=False,
                     xaxis=dict(
                         title=dict(text="Data"),
                         type='date',
                         tickformat='%d/%m/%Y',
+                        hoverformat='%d/%m/%Y',
+                        fixedrange=True,
                         gridcolor='rgba(0,0,0,0.08)'
                     ),
                     yaxis=dict(
                         title=dict(text="Forza (kg)", font=dict(color='#10b981')),
                         tickfont=dict(color='#10b981'),
+                        fixedrange=True,
                         gridcolor='rgba(0,0,0,0.08)'
                     ),
                     yaxis2=dict(
                         title=dict(text="Peso Corporeo (kg)", font=dict(color='#ef4444')),
                         tickfont=dict(color='#ef4444'),
+                        fixedrange=True,
                         overlaying='y',
                         side='right'
                     ),
@@ -1591,4 +1605,4 @@ with tab5:
                     margin=dict(l=40, r=40, t=50, b=40),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                st.plotly_chart(fig_fz, use_container_width=True)
+                st.plotly_chart(fig_fz, use_container_width=True, config={'displayModeBar': False})
