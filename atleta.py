@@ -111,6 +111,8 @@ st.markdown("""
 
     header[data-testid="stHeader"] { display: none !important; }
     footer { display: none !important; }
+    [data-testid="stSidebar"] { display: none !important; }
+    [data-testid="collapsedControl"] { display: none !important; }
 
     /* Titoli: Rimozione di ogni sfondo per evitare effetto pezza */
     h1, h2, h3, h4, h5,
@@ -498,6 +500,209 @@ def calcola_macro_kpi_storici(df_atleta_in):
         "end": (val_end, delta_end, lato_end, dt_end)
     }
 
+# ---------------- FUNZIONE DOSSIER AI ----------------
+def genera_dossier_ai(df_master, atleta_nome):
+    df_atleta = df_master[df_master['Atleta'] == atleta_nome].copy()
+    if df_atleta.empty:
+        return f"⚠️ Nessun dato disponibile per l'atleta {atleta_nome}."
+
+    if 'Data' in df_atleta.columns:
+        df_atleta['Data_dt'] = df_atleta['Data'].apply(parse_date_eu)
+        df_atleta = df_atleta.sort_values(by='Data_dt')
+
+    # Helper per estrarre l'ultimo valore valido (>0) cronologico e la relativa data
+    def get_latest_val_and_date(col_names):
+        if isinstance(col_names, str):
+            col_names = [col_names]
+        cols_exist = [c for c in col_names if c in df_atleta.columns]
+        if not cols_exist:
+            return None, None
+        df_num = df_atleta[cols_exist].apply(lambda c: pd.to_numeric(c.astype(str).str.replace(',', '.'), errors='coerce'))
+        max_per_riga = df_num.max(axis=1)
+        valide = df_atleta[max_per_riga > 0]
+        if not valide.empty:
+            r = valide.dropna(subset=['Data']).iloc[-1]
+            v = float(max_per_riga.loc[r.name])
+            raw_d = r.get('Data')
+            if pd.isna(raw_d) or raw_d is None:
+                raw_d = r.get('DataStr')
+            return v, formatta_data_breve(raw_d)
+        return None, None
+
+    # 1. Dati Antropometrici
+    peso, dt_peso = get_latest_val_and_date('Peso Corporeo')
+    if not peso or peso <= 0:
+        return f"⚠️ Dati insufficienti per {atleta_nome}: è necessario registrare almeno una volta il Peso Corporeo dell'atleta per calcolare le metriche biomeccaniche."
+
+    df_con_data = df_atleta.dropna(subset=['Data'])
+    data_ultimo_test = formatta_data_breve(df_con_data.iloc[-1]['Data']) if not df_con_data.empty else "N/D"
+
+    md = f"# 📋 FASCICOLO CLINICO & BIOMECCANICO ATLETA: {atleta_nome.upper()}\n\n"
+    
+    # 1. Dati Antropometrici
+    md += "### 1. DATI ANTROPOMETRICI & RIFERIMENTO\n"
+    md += f"- **Nome Atleta:** {atleta_nome}\n"
+    md += f"- **Data Ultimo Test Registrato:** {data_ultimo_test}\n"
+    md += f"- **Peso Corporeo Attuale:** {peso:.1f} kg (rilevato il {dt_peso or data_ultimo_test})\n\n"
+
+    # 2. Trazione 1RM e Forza Dita (% BW)
+    md += "### 2. TRAZIONE 1RM E FORZA DITA (% BW & KG)\n"
+    
+    # Trazione 1RM
+    v_traz, dt_traz = get_latest_val_and_date(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
+    if v_traz is not None and v_traz > 0:
+        perc_traz = (v_traz / peso) * 100
+        carico_tot = peso + v_traz
+        perc_tot = (carico_tot / peso) * 100
+        md += f"- **Trazione Pull-Up 1RM:** Zavorra {v_traz:.1f} kg (**{perc_traz:.1f}% BW**) | **Carico Totale:** {carico_tot:.1f} kg (**{perc_tot:.1f}% BW**) [test: {dt_traz}]\n"
+    else:
+        md += "- **Trazione Pull-Up 1RM:** N/D\n"
+
+    # Isometria Vertical Pull (se presente)
+    v_vp_dx, _ = get_latest_val_and_date('Vertical Pull 120° DX')
+    v_vp_sx, _ = get_latest_val_and_date('Vertical Pull 120° SX')
+    if (v_vp_dx and v_vp_dx > 0) or (v_vp_sx and v_vp_sx > 0):
+        vp_dx_str = f"{v_vp_dx:.1f} kg ({(v_vp_dx/peso)*100:.1f}% BW)" if v_vp_dx else "N/D"
+        vp_sx_str = f"{v_vp_sx:.1f} kg ({(v_vp_sx/peso)*100:.1f}% BW)" if v_vp_sx else "N/D"
+        md += f"- **Isometria Trazione 120°:** DX: {vp_dx_str} | SX: {vp_sx_str}\n"
+
+    # Concentrica Dita
+    v_c_dx, dt_c_dx = get_latest_val_and_date('Concentrica DX')
+    v_c_sx, dt_c_sx = get_latest_val_and_date('Concentrica SX')
+    max_c = max(v_c_dx or 0.0, v_c_sx or 0.0)
+    if max_c > 0:
+        c_dx_str = f"{v_c_dx:.1f} kg ({(v_c_dx/peso)*100:.1f}% BW)" if v_c_dx else "N/D"
+        c_sx_str = f"{v_c_sx:.1f} kg ({(v_c_sx/peso)*100:.1f}% BW)" if v_c_sx else "N/D"
+        md += f"- **Dita Concentrica (Attiva):** DX: {c_dx_str} | SX: {c_sx_str} — **Max:** {max_c:.1f} kg (**{(max_c/peso)*100:.1f}% BW**) [test: {dt_c_dx or dt_c_sx}]\n"
+    else:
+        md += "- **Dita Concentrica (Attiva):** N/D\n"
+
+    # Eccentrica Dita
+    v_e_dx, dt_e_dx = get_latest_val_and_date('Eccentrica DX')
+    v_e_sx, dt_e_sx = get_latest_val_and_date('Eccentrica SX')
+    max_e = max(v_e_dx or 0.0, v_e_sx or 0.0)
+    if max_e > 0:
+        e_dx_str = f"{v_e_dx:.1f} kg ({(v_e_dx/peso)*100:.1f}% BW)" if v_e_dx else "N/D"
+        e_sx_str = f"{v_e_sx:.1f} kg ({(v_e_sx/peso)*100:.1f}% BW)" if v_e_sx else "N/D"
+        md += f"- **Dita Eccentrica (Passiva):** DX: {e_dx_str} | SX: {e_sx_str} — **Max:** {max_e:.1f} kg (**{(max_e/peso)*100:.1f}% BW**) [test: {dt_e_dx or dt_e_sx}]\n"
+    else:
+        md += "- **Dita Eccentrica (Passiva):** N/D\n"
+
+    # Dita Stese (se presente)
+    v_st_dx, _ = get_latest_val_and_date('Stese DX')
+    v_st_sx, _ = get_latest_val_and_date('Stese SX')
+    max_st = max(v_st_dx or 0.0, v_st_sx or 0.0)
+    if max_st > 0:
+        st_dx_str = f"{v_st_dx:.1f} kg ({(v_st_dx/peso)*100:.1f}% BW)" if v_st_dx else "N/D"
+        st_sx_str = f"{v_st_sx:.1f} kg ({(v_st_sx/peso)*100:.1f}% BW)" if v_st_sx else "N/D"
+        md += f"- **Dita Stese (Open Hand):** DX: {st_dx_str} | SX: {st_sx_str} — **Max:** {max_st:.1f} kg (**{(max_st/peso)*100:.1f}% BW**)\n"
+
+    # Profilo Metabolico (Endurance 30s & Critical Force)
+    cols_end_media = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "forza media" in c.lower()]
+    if not cols_end_media:
+        cols_end_media = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower()]
+    v_end, dt_end = get_latest_val_and_date(cols_end_media)
+    if v_end and v_end > 0:
+        md += f"- **Endurance 30s (Forza Media):** {v_end:.1f} kg (**{(v_end/peso)*100:.1f}% BW**) [test: {dt_end}]\n"
+
+    v_cf, dt_cf = get_latest_val_and_date([c for c in df_atleta.columns if "critical force" in c.lower()])
+    if v_cf and v_cf > 0:
+        md += f"- **Critical Force 7:3:** {v_cf:.1f} kg (**{(v_cf/peso)*100:.1f}% BW**) [test: {dt_cf}]\n"
+
+    v_rfd, dt_rfd = get_latest_val_and_date([c for c in df_atleta.columns if "rfd" in c.lower() and not "pull" in c.lower()])
+    if v_rfd and v_rfd > 0:
+        md += f"- **RFD / Contact Strength Dita:** {v_rfd:.1f} kg/s [test: {dt_rfd}]\n"
+
+    md += "\n"
+
+    # 3. Alert Asimmetrie (Bandiera Rossa > 15%)
+    md += "### 3. VALUTAZIONE ASIMMETRIE LATERALI (DX vs SX)\n"
+
+    # Asimmetria Concentrica
+    if (v_c_dx and v_c_dx > 0) and (v_c_sx and v_c_sx > 0):
+        gap_c = (abs(v_c_dx - v_c_sx) / max(v_c_dx, v_c_sx)) * 100
+        lato_deb_c = 'DX' if v_c_dx < v_c_sx else ('SX' if v_c_sx < v_c_dx else 'Nessuno')
+        if gap_c > 15.0:
+            md += f"- 🚨 **ALERT CLINICO: Asimmetria DX/SX > 15%** (Dita Concentrica: **{gap_c:.1f}%**, lato debole: **{lato_deb_c}** — DX {v_c_dx:.1f} kg vs SX {v_c_sx:.1f} kg)\n"
+        else:
+            md += f"- ✅ **Dita Concentrica:** Gap {gap_c:.1f}% (fisiologico <= 15%, lato debole: {lato_deb_c})\n"
+    else:
+        md += "- **Dita Concentrica:** Dati bilaterali non completi per il calcolo asimmetria.\n"
+
+    # Asimmetria Eccentrica
+    if (v_e_dx and v_e_dx > 0) and (v_e_sx and v_e_sx > 0):
+        gap_e = (abs(v_e_dx - v_e_sx) / max(v_e_dx, v_e_sx)) * 100
+        lato_deb_e = 'DX' if v_e_dx < v_e_sx else ('SX' if v_e_sx < v_e_dx else 'Nessuno')
+        if gap_e > 15.0:
+            md += f"- 🚨 **ALERT CLINICO: Asimmetria DX/SX > 15%** (Dita Eccentrica: **{gap_e:.1f}%**, lato debole: **{lato_deb_e}** — DX {v_e_dx:.1f} kg vs SX {v_e_sx:.1f} kg)\n"
+        else:
+            md += f"- ✅ **Dita Eccentrica:** Gap {gap_e:.1f}% (fisiologico <= 15%, lato debole: {lato_deb_e})\n"
+    else:
+        md += "- **Dita Eccentrica:** Dati bilaterali non completi per il calcolo asimmetria.\n"
+
+    # Asimmetria Trazione (se presente)
+    if (v_vp_dx and v_vp_dx > 0) and (v_vp_sx and v_vp_sx > 0):
+        gap_vp = (abs(v_vp_dx - v_vp_sx) / max(v_vp_dx, v_vp_sx)) * 100
+        lato_deb_vp = 'DX' if v_vp_dx < v_vp_sx else ('SX' if v_vp_sx < v_vp_dx else 'Nessuno')
+        if gap_vp > 15.0:
+            md += f"- 🚨 **ALERT CLINICO: Asimmetria DX/SX > 15%** (Trazione 120°: **{gap_vp:.1f}%**, lato debole: **{lato_deb_vp}**)\n"
+        else:
+            md += f"- ✅ **Trazione 120°:** Gap {gap_vp:.1f}% (fisiologico <= 15%)\n"
+
+    md += "\n"
+
+    # 4. Check Strutturale (Pulegge)
+    md += "### 4. CHECK STRUTTURALE (INTEGRITÀ TESSUTI CONNETTIVI & PULEGGE)\n"
+    if max_c > 0 and max_e > 0:
+        ratio_pe = (max_c / max_e) * 100
+        if max_c >= (max_e * 0.95):
+            md += f"- 🚨 **BANDIERA ROSSA: Concentrica supera o eguaglia l'Eccentrica (Rischio Pulegge)**\n"
+            md += f"  - **Rapporto Attivo/Passivo (Conc/Ecc):** **{ratio_pe:.1f}%** (Soglia limite di sicurezza fisiologica: < 95%)\n"
+            md += f"  - **Dettaglio:** Concentrica Max {max_c:.1f} kg ({(max_c/peso)*100:.1f}% BW) vs Eccentrica Max {max_e:.1f} kg ({(max_e/peso)*100:.1f}% BW).\n"
+            md += f"  - **Indicazione Clinica:** La forza attiva contrattile eccede la tolleranza passiva dei connettivi. Rischio critico di lesione a pulegge (A2/A4) e tendini. Evitare carichi massimali dinamici ed inserire isometrie yielding/eccentriche protettive.\n"
+        else:
+            md += f"- ✅ **Tolleranza Strutturale Passiva Ottimale**\n"
+            md += f"  - **Rapporto Attivo/Passivo (Conc/Ecc):** **{ratio_pe:.1f}%** (fisiologico e sicuro < 95%)\n"
+            md += f"  - **Dettaglio:** Concentrica Max {max_c:.1f} kg vs Eccentrica Max {max_e:.1f} kg (margine di sicurezza protettivo: {max_e - max_c:.1f} kg).\n"
+    else:
+        md += "- ℹ️ Dati di Concentrica ed Eccentrica insufficienti nello storico per il calcolo del ratio di sicurezza tendinea.\n"
+
+    md += "\n"
+
+    # 5. Esercizi Accessori
+    md += "### 5. ESERCIZI ACCESSORI & TEST GENERALI (ULTIMI CARICHI REGISTRATI)\n"
+    v_deadlift, dt_deadlift = get_latest_val_and_date(['Deadlift', 'Stacco'])
+    v_pushup, dt_pushup = get_latest_val_and_date(['Push-up MAX rep', 'Push-up', 'Push up MAX', 'Push-up MAX'])
+    v_panca, dt_panca = get_latest_val_and_date(['Panca', 'Bench Press'])
+
+    # Deadlift
+    if v_deadlift is not None and v_deadlift > 0:
+        md += f"- **Deadlift (Stacco da terra):** {v_deadlift:.1f} kg (**{(v_deadlift/peso)*100:.1f}% BW**) [rilevato: {dt_deadlift}]\n"
+    else:
+        md += "- **Deadlift (Stacco da terra):** Nessun carico registrato\n"
+
+    # Push-up MAX rep
+    if v_pushup is not None and v_pushup > 0:
+        md += f"- **Push-up MAX rep:** {int(v_pushup)} ripetizioni [rilevato: {dt_pushup}]\n"
+    else:
+        md += "- **Push-up MAX rep:** Nessun test registrato\n"
+
+    # Panca
+    if v_panca is not None and v_panca > 0:
+        md += f"- **Panca (Bench Press):** {v_panca:.1f} kg (**{(v_panca/peso)*100:.1f}% BW**) [rilevato: {dt_panca}]\n"
+    else:
+        md += "- **Panca (Bench Press):** Nessun carico registrato\n"
+
+    # Altri accessori se registrati (Squat)
+    v_squat, dt_squat = get_latest_val_and_date('Squat')
+    if v_squat and v_squat > 0:
+        md += f"- **Squat:** {v_squat:.1f} kg ({(v_squat/peso)*100:.1f}% BW) [rilevato: {dt_squat}]\n"
+
+    md += "\n---\n"
+    md += "**DIRETTIVA PER IL COACH AI:** Utilizza questi dati per calcolare i carichi target del prossimo mesociclo di arrampicata sportiva/bouldering. Se è presente un ALERT CLINICO (> 15% asimmetria), imposta un blocco correttivo unilaterale sul lato debole. Se è presente una BANDIERA ROSSA (Rapporto Concentrica/Eccentrica >= 95%), riduci l'intensità dinamica e inserisci protocolli yielding/isometrie protettive per le pulegge."
+    
+    return md
+
 # ==============================================================================
 # 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI CLOUD & PRIVACY ATLETA
 # ==============================================================================
@@ -511,7 +716,10 @@ if not st.session_state.logged_in:
     df_credenziali = credenziali.copy()
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
-        st.markdown("<div style='text-align: center; margin-top: 2.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
+        col_log_l, col_log_c, col_log_r = st.columns([1, 1.5, 1])
+        with col_log_c:
+            st.image("logo_asd.png", width=150)
+        st.markdown("<div style='text-align: center; margin-top: 0.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
         st.title("Vetrina Atleta")
         st.caption("Piattaforma di consultazione dati personali Tindeq")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -553,7 +761,11 @@ if not st.session_state.logged_in:
 col_top_h, col_top_out = st.columns([3, 1])
 with col_top_h:
     if st.session_state.ruolo == "Admin" or str(st.session_state.nome_atleta_esatto).upper() == "TUTTI":
-        st.title("Vetrina Atleta — Vista Admin")
+        col_logo, col_titolo = st.columns([1, 8], vertical_alignment="center")
+        with col_logo:
+            st.image("logo_asd.png", width=80)
+        with col_titolo:
+            st.title("Vetrina Atleta — Vista Admin")
         col_sel_at, col_sz = st.columns([2, 1])
         with col_sel_at:
             mostra_inattivi = st.checkbox("Mostra anche atleti inattivi (> 2 anni)", value=False, key="atleta_mostra_inattivi")
@@ -570,7 +782,11 @@ with col_top_h:
             dim_grafico = st.radio("Dimensione Grafici:", ["Compatta (Piccola)", "Standard (Grande)"], horizontal=True, key="sel_dim_grafico")
     else:
         atleta_selezionato = st.session_state.nome_atleta_esatto
-        st.title(f"Vetrina Atleta — {atleta_selezionato}")
+        col_logo, col_titolo = st.columns([1, 8], vertical_alignment="center")
+        with col_logo:
+            st.image("logo_asd.png", width=80)
+        with col_titolo:
+            st.title(f"Vetrina Atleta — {atleta_selezionato}")
         dim_grafico = "Standard (Grande)"
 
 with col_top_out:
@@ -588,13 +804,6 @@ with col_top_out:
             st.session_state.nome_utente = None
             st.session_state.nome_atleta_esatto = None
             st.rerun()
-
-with st.sidebar:
-       st.sidebar.image("logo_asd.png", use_container_width=True)
-       st.markdown("### Azioni")
-       if st.button("Sincronizza Dati", key="btn_sync_sidebar", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
 
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
 df_atleta = df[df['Atleta'] == atleta_selezionato].copy()
@@ -1051,6 +1260,25 @@ with tab1:
                 )
             else:
                 st.caption("6. Nessun test RFD (Forza Rapida Dita) disponibile nello storico dell'atleta.")
+
+    # Esportazione Dossier Clinico Gemini AI
+    with st.expander("🤖 Esportazione Fascicolo Clinico per Gemini AI", expanded=False):
+        st.caption("Genera il fascicolo clinico completo pronto per la skill Climbing Performance Coach.")
+        col_d1, col_d2 = st.columns([1, 4])
+        with col_d1:
+            btn_dossier = st.button("📄 Genera Fascicolo Atleta", type="primary", key="btn_genera_dossier_atleta")
+        if btn_dossier or ('dossier_atleta_testo' in st.session_state and st.session_state.get('dossier_atleta_sel') == atleta_selezionato):
+            if btn_dossier:
+                st.session_state.dossier_atleta_testo = genera_dossier_ai(df, atleta_selezionato)
+                st.session_state.dossier_atleta_sel = atleta_selezionato
+            st.code(st.session_state.dossier_atleta_testo, language="markdown")
+            st.download_button(
+                label="⬇️ Scarica Fascicolo (.txt)",
+                data=st.session_state.dossier_atleta_testo,
+                file_name=f"Fascicolo_{atleta_selezionato.replace(' ', '_')}.txt",
+                mime="text/plain",
+                key="dl_dossier_singolo_atleta"
+            )
 
     st.markdown("---")
     
