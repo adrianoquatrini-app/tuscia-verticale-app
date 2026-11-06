@@ -7,7 +7,13 @@ import re
 from datetime import datetime
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import math
+import hmac
+import hashlib
+import json
+import base64
+import time
 
 def prepara_df_visualizzazione(df_in):
     df_out = df_in.copy()
@@ -704,13 +710,95 @@ def genera_dossier_ai(df_master, atleta_nome):
     return md
 
 # ==============================================================================
-# 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI CLOUD & PRIVACY ATLETA
+# 1. GATEKEEPER: LOGIN DINAMICO DA CREDENZIALI CLOUD & PERSISTENZA COOKIE (F5)
 # ==============================================================================
+COOKIE_CONFIG = st.secrets.get("cookie", {
+    "name": "tindeq_atleta_cookie",
+    "key": "una_firma_segreta_qualsiasi_molto_lunga",
+    "expiry_days": 30
+})
+
+class CookieAuthenticator:
+    """
+    Gestore per l'autenticazione persistente e cookie di sessione.
+    Risolve la disconnessione su reload (F5) memorizzando un token HMAC crittografato
+    con scadenza definita in expiry_days (default 30 giorni).
+    """
+    def __init__(self, cookie_config):
+        self.cookie_name = cookie_config.get("name", "tindeq_atleta_cookie")
+        self.cookie_key = cookie_config.get("key", "una_firma_segreta_qualsiasi_molto_lunga")
+        self.expiry_days = int(cookie_config.get("expiry_days", 30))
+
+    def genera_token(self, username, ruolo, nome_atleta):
+        exp = int(time.time()) + (self.expiry_days * 86400)
+        payload = json.dumps({"u": username, "r": ruolo, "a": nome_atleta, "exp": exp}, separators=(',', ':'))
+        p_b64 = base64.urlsafe_b64encode(payload.encode('utf-8')).decode('utf-8')
+        sig = hmac.new(self.cookie_key.encode('utf-8'), p_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+        return f"{p_b64}.{sig}"
+
+    def valida_token(self, token_str):
+        if not token_str or "." not in token_str:
+            return None
+        try:
+            p_b64, sig = token_str.rsplit(".", 1)
+            exp_sig = hmac.new(self.cookie_key.encode('utf-8'), p_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(sig, exp_sig):
+                return None
+            p_json = base64.urlsafe_b64decode(p_b64.encode('utf-8')).decode('utf-8')
+            data = json.loads(p_json)
+            if time.time() > data.get("exp", 0):
+                return None
+            return data
+        except Exception:
+            return None
+
+    def ripristina_sessione(self):
+        token = None
+        try:
+            token = st.context.cookies.get(self.cookie_name)
+        except Exception:
+            pass
+        if not token:
+            token = st.query_params.get(self.cookie_name)
+        if token:
+            data = self.valida_token(token)
+            if data:
+                st.session_state.logged_in = True
+                st.session_state.nome_utente = data.get("u")
+                st.session_state.ruolo = data.get("r")
+                st.session_state.nome_atleta_esatto = data.get("a")
+                if self.cookie_name not in st.query_params:
+                    st.query_params[self.cookie_name] = token
+                return True
+            else:
+                if self.cookie_name in st.query_params:
+                    del st.query_params[self.cookie_name]
+        return False
+
+    def salva_sessione(self, username, ruolo, nome_atleta):
+        token = self.genera_token(username, ruolo, nome_atleta)
+        st.query_params[self.cookie_name] = token
+
+    def logout(self):
+        if self.cookie_name in st.query_params:
+            del st.query_params[self.cookie_name]
+        st.session_state.logged_in = False
+        st.session_state.ruolo = None
+        st.session_state.nome_utente = None
+        st.session_state.nome_atleta_esatto = None
+
+# Inizializzazione authenticator da configurazione secrets
+authenticator = CookieAuthenticator(COOKIE_CONFIG)
+
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.ruolo = None
     st.session_state.nome_utente = None
     st.session_state.nome_atleta_esatto = None
+
+# Ripristino automatico della sessione al reload (F5) tramite cookie persistente
+if not st.session_state.logged_in:
+    authenticator.ripristina_sessione()
 
 if not st.session_state.logged_in:
     df_credenziali = credenziali.copy()
@@ -750,6 +838,9 @@ if not st.session_state.logged_in:
                     else:
                         st.session_state.ruolo = "Atleta"
                         st.session_state.nome_utente = atleta_target
+                    
+                    # Salva il cookie persistente (valido per expiry_days, es. 30 giorni) per evitare disconnessioni su F5
+                    authenticator.salva_sessione(st.session_state.nome_utente, st.session_state.ruolo, st.session_state.nome_atleta_esatto)
                     st.rerun()
                 else:
                     st.error("Credenziali non corrette. Riprova.")
@@ -799,10 +890,7 @@ with col_top_out:
             st.rerun()
     with col_btn_logout:
         if st.button("Esci", key="btn_logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.ruolo = None
-            st.session_state.nome_utente = None
-            st.session_state.nome_atleta_esatto = None
+            authenticator.logout()
             st.rerun()
 
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
@@ -1803,28 +1891,29 @@ with tab5:
             df_fz = df_bio.dropna(subset=[col_pull_fz]).copy()
             if not df_fz.empty:
                 s_fz = pd.to_numeric(df_fz[col_pull_fz].astype(str).str.replace(',', '.'), errors='coerce')
-                s_bw = pd.to_numeric(df_fz['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
-                fig_fz = go.Figure()
-                fig_fz.add_trace(go.Scatter(
-                    x=df_fz['Data'],
-                    y=s_fz,
-                    mode='lines+markers',
-                    name='Forza Erogata (kg)',
-                    line=dict(color='#10b981', width=2.5),
-                    marker=dict(size=7),
-                    yaxis='y1',
-                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Forza: %{y:.1f} kg<extra></extra>"
-                ))
-                fig_fz.add_trace(go.Scatter(
-                    x=df_fz['Data'],
-                    y=s_bw,
-                    mode='lines+markers',
-                    name='Peso Corporeo (kg)',
-                    line=dict(color='#ef4444', width=2.5, dash='dash'),
-                    marker=dict(size=7, symbol='square'),
-                    yaxis='y2',
-                    hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Peso Corporeo: %{y:.1f} kg<extra></extra>"
-                ))
+                fig_fz = make_subplots(specs=[[{"secondary_y": True}]])
+                fig_fz.add_trace(
+                    go.Scatter(
+                        x=df_fz['Data'],
+                        y=s_fz,
+                        mode='lines+markers',
+                        name='Forza Erogata (kg)',
+                        line=dict(color='#10b981', width=2.5),
+                        marker=dict(size=7),
+                        hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Forza: %{y:.1f} kg<extra></extra>"
+                    ),
+                    secondary_y=False
+                )
+                fig_fz.add_trace(
+                    go.Scatter(
+                        x=df_atleta['Data'], 
+                        y=df_atleta['Peso Corporeo'], 
+                        name='Peso Corporeo', 
+                        mode='lines', 
+                        line=dict(color='#ef4444', width=2, dash='dot')
+                    ),
+                    secondary_y=True
+                )
                 fig_fz.update_layout(
                     title="Zavorra Inerziale vs Forza Erogata",
                     dragmode=False,
@@ -1836,23 +1925,14 @@ with tab5:
                         fixedrange=True,
                         gridcolor='rgba(0,0,0,0.08)'
                     ),
-                    yaxis=dict(
-                        title=dict(text="Forza (kg)", font=dict(color='#10b981')),
-                        tickfont=dict(color='#10b981'),
-                        fixedrange=True,
-                        gridcolor='rgba(0,0,0,0.08)'
-                    ),
-                    yaxis2=dict(
-                        title=dict(text="Peso Corporeo (kg)", font=dict(color='#ef4444')),
-                        tickfont=dict(color='#ef4444'),
-                        fixedrange=True,
-                        overlaying='y',
-                        side='right'
-                    ),
                     hovermode='x unified',
                     template='plotly_white',
                     height=400 if dim_grafico == "Standard (Grande)" else 300,
                     margin=dict(l=40, r=40, t=50, b=40),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
+                fig_fz.update_xaxes(fixedrange=True)
+                fig_fz.update_yaxes(fixedrange=True)
+                fig_fz.update_yaxes(title_text="Forza Erogata (kg)", secondary_y=False)
+                fig_fz.update_yaxes(title_text="Peso Corporeo (kg)", showgrid=False, secondary_y=True)
                 st.plotly_chart(fig_fz, use_container_width=True, config={'displayModeBar': False})
