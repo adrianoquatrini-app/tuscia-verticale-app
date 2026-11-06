@@ -41,6 +41,25 @@ def parse_date_eu(val):
     res = pd.to_datetime(s, dayfirst=True, errors='coerce')
     return res.normalize() if pd.notna(res) else res
 
+def formatta_data_breve(val):
+    if val is None or pd.isna(val):
+        return "N/D"
+    if isinstance(val, (pd.Timestamp, datetime)):
+        return val.strftime('%d/%m/%Y')
+    s = str(val).split(' ')[0].strip()
+    if s in ['N/D', 'None', 'nan', 'NaT', '']:
+        return "N/D"
+    m_eu = re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$', s)
+    if m_eu:
+        return f"{int(m_eu.group(1)):02d}/{int(m_eu.group(2)):02d}/{m_eu.group(3)}"
+    m_iso = re.match(r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$', s)
+    if m_iso:
+        return f"{int(m_iso.group(3)):02d}/{int(m_iso.group(2)):02d}/{m_iso.group(1)}"
+    dt = parse_date_eu(s)
+    if pd.notna(dt):
+        return dt.strftime('%d/%m/%Y')
+    return s[:10]
+
 CARTELLA_ARCHIVIO = "Archivio_CSV"
 
 # --- CONNESSIONE CLOUD SICURA ---
@@ -407,7 +426,7 @@ def calcola_macro_kpi_storici(df_atleta_in):
                     v = float(num)
                     break
         if v is not None:
-            serie_1rm.append((v, str(row.get('Data', ''))))
+            serie_1rm.append((v, formatta_data_breve(row.get('Data', ''))))
             
     val_1rm, delta_1rm, dt_1rm = None, None, None
     if serie_1rm:
@@ -425,7 +444,7 @@ def calcola_macro_kpi_storici(df_atleta_in):
         if ndx > 0 or nsx > 0:
             m = max(ndx, nsx)
             lato = "DX" if ndx >= nsx else "SX"
-            serie_conc.append((m, lato, str(row.get('Data', ''))))
+            serie_conc.append((m, lato, formatta_data_breve(row.get('Data', ''))))
             
     val_conc, delta_conc, lato_conc, dt_conc = None, None, "", None
     if serie_conc:
@@ -443,7 +462,7 @@ def calcola_macro_kpi_storici(df_atleta_in):
         if ndx > 0 or nsx > 0:
             m = max(ndx, nsx)
             lato = "DX" if ndx >= nsx else "SX"
-            serie_ecc.append((m, lato, str(row.get('Data', ''))))
+            serie_ecc.append((m, lato, formatta_data_breve(row.get('Data', ''))))
             
     val_ecc, delta_ecc, lato_ecc, dt_ecc = None, None, "", None
     if serie_ecc:
@@ -464,7 +483,7 @@ def calcola_macro_kpi_storici(df_atleta_in):
         if ndx > 0 or nsx > 0:
             m = max(ndx, nsx)
             lato = "DX" if ndx >= nsx else "SX"
-            serie_end.append((m, lato, str(row.get('Data', ''))))
+            serie_end.append((m, lato, formatta_data_breve(row.get('Data', ''))))
             
     val_end, delta_end, lato_end, dt_end = None, None, "", None
     if serie_end:
@@ -715,7 +734,10 @@ with tab1:
             if not valide.empty:
                 r = valide.dropna(subset=['Data']).iloc[-1]
                 v = float(max_per_riga.loc[r.name])
-                dt = str(r.get('DataStr', r.get('Data', 'N/D')))
+                raw_dt = r.get('Data')
+                if pd.isna(raw_dt) or raw_dt is None:
+                    raw_dt = r.get('DataStr')
+                dt = formatta_data_breve(raw_dt)
                 return v, dt
             return 0.0, None
 
@@ -752,7 +774,7 @@ with tab1:
         # Conversione in Forza Relativa (% Bodyweight) con l'ultimo peso noto
         categorie = ['Dita Concentrica', 'Dita Eccentrica', 'Dita Stese', 'Endurance 30s (Forza Media)', 'Critical Force 7:3', 'Trazione 1RM']
         valori_kg = [val_conc, val_ecc, stese_picco, val_end, val_cf, val_trazione]
-        date_test = [data_conc or "N/D", data_ecc or "N/D", d_stese or "N/D", data_end or "N/D", data_cf or "N/D", data_trazione or "N/D"]
+        date_test = [formatta_data_breve(data_conc), formatta_data_breve(data_ecc), formatta_data_breve(d_stese), formatta_data_breve(data_end), formatta_data_breve(data_cf), formatta_data_breve(data_trazione)]
         valori_perc = [(v / peso_kpi) * 100 if v > 0 else 0.0 for v in valori_kg]
         perc_conc, perc_ecc, perc_stese, perc_end, perc_cf, perc_trazione = valori_perc
 
@@ -818,12 +840,12 @@ with tab1:
             # Didascalia con le date reali degli ultimi test validi
             st.caption(
                 f"Profilo basato sugli ultimi test validi — "
-                f"Dita Concentrica: {data_conc or 'N/D'} | "
-                f"Dita Eccentrica: {data_ecc or 'N/D'} | "
-                f"Dita Stese: {d_stese or 'N/D'} | "
-                f"Endurance 30s (Forza Media): {data_end or 'N/D'} | "
-                f"Critical Force 7:3: {data_cf or 'N/D'} | "
-                f"Trazione 1RM: {data_trazione or 'N/D'}"
+                f"Dita Concentrica: {formatta_data_breve(data_conc)} | "
+                f"Dita Eccentrica: {formatta_data_breve(data_ecc)} | "
+                f"Dita Stese: {formatta_data_breve(d_stese)} | "
+                f"Endurance 30s (Forza Media): {formatta_data_breve(data_end)} | "
+                f"Critical Force 7:3: {formatta_data_breve(data_cf)} | "
+                f"Trazione 1RM: {formatta_data_breve(data_trazione)}"
             )
 
             # --- VALUTAZIONE BIOMECCANICA & CLINICA (CHECK SEPARATI) ---
@@ -832,7 +854,7 @@ with tab1:
             # 1. Check Strutturale (Pulegge / Eccentrica vs Concentrica)
             if val_conc > 0 and val_ecc > 0:
                 ratio_pe = (val_conc / val_ecc) * 100
-                d_info = f"(Concentrica: {data_conc or 'N/D'} | Eccentrica: {data_ecc or 'N/D'})"
+                d_info = f"(Concentrica: {formatta_data_breve(data_conc)} | Eccentrica: {formatta_data_breve(data_ecc)})"
                 if val_conc >= (0.95 * val_ecc):
                     st.error(
                         f"**1. Check Strutturale — Allarme Pulegge & Rischio Connettivale {d_info}:** La forza Concentrica "
@@ -853,7 +875,7 @@ with tab1:
             # 2. Check Motore vs Trasmissione (Trazione 1RM vs Dita Concentrica)
             if perc_trazione > 0 and perc_conc > 0:
                 diff_mt = perc_trazione - perc_conc
-                d_info_mt = f"(Trazione: {data_trazione or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                d_info_mt = f"(Trazione: {formatta_data_breve(data_trazione)} | Concentrica: {formatta_data_breve(data_conc)})"
                 if diff_mt > 15.0:
                     st.warning(
                         f"**2. Check Motore vs Trasmissione — Squilibrio di Potenza {d_info_mt}:** La Trazione 1RM ({perc_trazione:.1f}% BW) supera la forza Concentrica "
@@ -879,7 +901,7 @@ with tab1:
             # 3. Check Metabolico (Endurance 30s Forza Media vs Dita Concentrica)
             if perc_end > 0 and perc_conc > 0:
                 ratio_end = (perc_end / perc_conc) * 100
-                d_info_end = f"(Endurance Forza Media: {data_end or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                d_info_end = f"(Endurance Forza Media: {formatta_data_breve(data_end)} | Concentrica: {formatta_data_breve(data_conc)})"
                 if perc_end < (0.50 * perc_conc):
                     st.warning(
                         f"**3. Check Metabolico — Crollo Capacità Lattacida/Endurance {d_info_end}:** A fronte di una buona forza massima delle dita "
@@ -898,14 +920,14 @@ with tab1:
                         f"(pari al **{ratio_end:.1f}%** del massimale concentrico). Capacità anaerobica nella norma, con margini di progressione sulla capillarizzazione locale."
                     )
             elif perc_end > 0:
-                st.info(f"3. Check Metabolico: Endurance 30s (Forza Media) registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {data_end or 'N/D'}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
+                st.info(f"3. Check Metabolico: Endurance 30s (Forza Media) registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {formatta_data_breve(data_end)}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
             else:
                 st.caption("3. Check Metabolico: Nessun test Endurance 30s (Forza Media) registrato nello storico dell'atleta.")
 
             # 4. Check Equilibrio Stile di Presa (Mezza Crimpatura vs Stese)
             if stese_picco > 0 and val_conc > 0:
                 ratio_presa = (stese_picco / val_conc) * 100
-                d_info_presa = f"(Stese: {d_stese or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                d_info_presa = f"(Stese: {formatta_data_breve(d_stese)} | Concentrica: {formatta_data_breve(data_conc)})"
                 if ratio_presa >= 85.0:
                     st.success(
                         f"**4. Equilibrio Stile di Presa — Bilanciamento Fisiologico Ottimale {d_info_presa}:** "
@@ -929,7 +951,7 @@ with tab1:
             # 5. Check Sistema Aerobico (Critical Force vs Dita Concentrica)
             if val_cf > 0 and val_conc > 0:
                 ratio_cf = (val_cf / val_conc) * 100
-                d_info_cf = f"(Critical Force: {data_cf or 'N/D'} | Concentrica: {data_conc or 'N/D'})"
+                d_info_cf = f"(Critical Force: {formatta_data_breve(data_cf)} | Concentrica: {formatta_data_breve(data_conc)})"
                 if ratio_cf >= 45.0:
                     st.success(
                         f"**5. Check Sistema Aerobico — Efficienza Ossidativa Ottimale {d_info_cf}:** "
@@ -958,9 +980,9 @@ with tab1:
 
             rfd_dx_val, rfd_sx_val = 0.0, 0.0
             if d_rfd:
-                r_rfd = df_atleta[df_atleta['Data'].astype(str) == str(d_rfd)]
+                r_rfd = df_atleta[df_atleta['Data'].apply(formatta_data_breve) == str(formatta_data_breve(d_rfd))]
                 if r_rfd.empty and 'DataStr' in df_atleta.columns:
-                    r_rfd = df_atleta[df_atleta['DataStr'].astype(str) == str(d_rfd)]
+                    r_rfd = df_atleta[df_atleta['DataStr'].apply(formatta_data_breve) == str(formatta_data_breve(d_rfd))]
                 if not r_rfd.empty:
                     u_rfd = r_rfd.iloc[-1]
                     col_dx = next((c for c in cols_rfd if "dx" in c.lower()), None)
@@ -1020,7 +1042,7 @@ with tab1:
 
                 st.markdown(
                     f"<div style='background-color: #f8fafc; border-left: 4px solid #8b5cf6; padding: 12px 16px; border-radius: 6px; margin-top: 10px; font-size: 0.92em; color: #1e293b; line-height: 1.5;'>"
-                    f"<b>Diagnosi Contact Strength [{d_rfd or 'N/D'}]:</b> {badge_rfd}<br>"
+                    f"<b>Diagnosi Contact Strength [{formatta_data_breve(d_rfd)}]:</b> {badge_rfd}<br>"
                     f"Nel tempo di contatto reale di un movimento dinamico (<b>200 ms</b>), l'atleta genera <b>{forza_contatto_200ms:.1f} kg</b>"
                     f"{f' ({perc_espressa_200ms:.1f}% della forza massima concentrica di {val_conc:.1f} kg)' if perc_espressa_200ms else ''}. "
                     f"{diagnosi_rfd}{asim_rfd_txt}"
