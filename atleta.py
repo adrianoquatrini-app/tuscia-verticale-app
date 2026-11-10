@@ -44,7 +44,7 @@ def parse_date_eu(val):
         if y < 100: y += 2000
         res = pd.to_datetime(f"{y:04d}-{m:02d}-{d:02d}", format='%Y-%m-%d', errors='coerce')
         return res.normalize() if pd.notna(res) else res
-    res = pd.to_datetime(s, dayfirst=True, errors='coerce')
+    res = pd.to_datetime(s, errors='coerce')
     return res.normalize() if pd.notna(res) else res
 
 def formatta_data_breve(val):
@@ -77,6 +77,18 @@ def carica_dati_cloud():
     # Il parametro decimal="," aiuta con il formato italiano
     df_atleti = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_db}/export?format=csv", decimal=",")
     credenziali = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_cred}/export?format=csv")
+    
+    if 'Data' in df_atleti.columns:
+        # 1. Rimuove eventuali spazi invisibili dal testo
+        df_atleti['Data'] = df_atleti['Data'].astype(str).str.strip()
+        
+        # 2. Converte la data. Togliendo dayfirst=True, Pandas si adatta automaticamente 
+        # sia al formato italiano che a quello internazionale di Google Sheets.
+        df_atleti['Data'] = pd.to_datetime(df_atleti['Data'], format='mixed', errors='coerce')
+        
+        # (ELIMINATA LA RIGA dropna). 
+        # Ora se una data è formattata male su Sheets, viene ignorata per i grafici 
+        # ma la riga non viene distrutta e l'atleta continua a esistere!
     
     # FILTRO GLOBALE: forza tutte le metriche di test a tornare numeri (come faceva Excel)
     for col in df_atleti.columns:
@@ -412,7 +424,7 @@ def leggi_curva_csv(file_sel):
 
 df, credenziali = carica_dati_cloud()
 if 'Data_dt' not in df.columns and 'Data' in df.columns:
-    df['Data_dt'] = df['Data'].apply(parse_date_eu)
+    df['Data_dt'] = pd.to_datetime(df['Data'], format='mixed', errors='coerce').dt.normalize()
 
 atleti_lista = sorted(df['Atleta'].dropna().unique().tolist()) if 'Atleta' in df.columns else []
 
@@ -421,7 +433,7 @@ def calcola_macro_kpi_storici(df_atleta_in):
     Calcola l'ultimo valore valido e il delta (differenza in kg) rispetto alla
     penultima seduta valida per le 4 macro-categorie biomeccaniche.
     """
-    df_sort = df_atleta_in.sort_values(by='Data_dt').copy() if 'Data_dt' in df_atleta_in.columns else df_atleta_in.copy()
+    df_sort = df_atleta_in.sort_values(by='Data_dt', na_position='first').copy() if 'Data_dt' in df_atleta_in.columns else df_atleta_in.copy()
     
     # 1. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
     serie_1rm = []
@@ -513,8 +525,8 @@ def genera_dossier_ai(df_master, atleta_nome):
         return f"⚠️ Nessun dato disponibile per l'atleta {atleta_nome}."
 
     if 'Data' in df_atleta.columns:
-        df_atleta['Data_dt'] = df_atleta['Data'].apply(parse_date_eu)
-        df_atleta = df_atleta.sort_values(by='Data_dt')
+        df_atleta['Data_dt'] = pd.to_datetime(df_atleta['Data'], format='mixed', errors='coerce').dt.normalize()
+        df_atleta = df_atleta.sort_values(by='Data_dt', na_position='first')
 
     # Helper per estrarre l'ultimo valore valido (>0) cronologico e la relativa data
     def get_latest_val_and_date(col_names):
@@ -527,7 +539,8 @@ def genera_dossier_ai(df_master, atleta_nome):
         max_per_riga = df_num.max(axis=1)
         valide = df_atleta[max_per_riga > 0]
         if not valide.empty:
-            r = valide.dropna(subset=['Data']).iloc[-1]
+            valide_dt = valide.dropna(subset=['Data'])
+            r = valide_dt.iloc[-1] if not valide_dt.empty else valide.iloc[-1]
             v = float(max_per_riga.loc[r.name])
             raw_d = r.get('Data')
             if pd.isna(raw_d) or raw_d is None:
@@ -864,7 +877,7 @@ with col_top_h:
             if not mostra_inattivi and 'Data_dt' in df.columns and 'Atleta' in df.columns:
                 soglia_attivi = pd.Timestamp.now() - pd.DateOffset(years=2)
                 ultimi_test = df.groupby('Atleta')['Data_dt'].max()
-                atleti_attivi = set(ultimi_test[ultimi_test >= soglia_attivi].index)
+                atleti_attivi = set(ultimi_test[(ultimi_test >= soglia_attivi) | (ultimi_test.isna())].index)
                 lista_filtrata = [a for a in atleti_lista if a in atleti_attivi]
                 if lista_filtrata:
                     lista_atleti_sel = lista_filtrata
@@ -896,8 +909,8 @@ with col_top_out:
 fig_size = (10, 4) if dim_grafico == "Standard (Grande)" else (8, 2.5)
 df_atleta = df[df['Atleta'] == atleta_selezionato].copy()
 if 'Data' in df_atleta.columns:
-    df_atleta['Data'] = pd.to_datetime(df_atleta['Data'].apply(parse_date_eu), errors='coerce').dt.normalize()
-    df_atleta = df_atleta.dropna(subset=['Data']).sort_values(by='Data').copy()
+    df_atleta['Data'] = pd.to_datetime(df_atleta['Data'], format='mixed', errors='coerce').dt.normalize()
+    df_atleta = df_atleta.sort_values(by='Data', na_position='first').copy()
     df_atleta['Data_dt'] = df_atleta['Data']
 
 # --- FUNZIONI DI ORDINAMENTO CRONOLOGICO MENÙ ---
@@ -1029,7 +1042,8 @@ with tab1:
             max_per_riga = df_num.max(axis=1)
             valide = df_atleta[max_per_riga > 0]
             if not valide.empty:
-                r = valide.dropna(subset=['Data']).iloc[-1]
+                valide_dt = valide.dropna(subset=['Data'])
+                r = valide_dt.iloc[-1] if not valide_dt.empty else valide.iloc[-1]
                 v = float(max_per_riga.loc[r.name])
                 raw_dt = r.get('Data')
                 if pd.isna(raw_dt) or raw_dt is None:
@@ -1094,7 +1108,8 @@ with tab1:
                 polar=dict(
                     radialaxis=dict(
                         visible=True,
-                        range=[0, max_scala],
+                        range=[0, 100],
+                        autorange=False,
                         ticksuffix="%",
                         tickfont=dict(size=11, color="#475569"),
                         gridcolor="#cbd5e1",
@@ -1439,7 +1454,7 @@ if os.path.exists(cartella):
                                 if l1.lower().startswith('date,') and ',' in l2:
                                     raw_d = l2.split(',')[0].strip()
                                     if ' ' in raw_d: raw_d = raw_d.split(' ')[0]
-                                    dt_p = pd.to_datetime(raw_d, dayfirst=True, errors='coerce')
+                                    dt_p = pd.to_datetime(raw_d, errors='coerce')
                                     if pd.notna(dt_p):
                                         data_t = dt_p.strftime('%d/%m/%Y')
                         except:
@@ -1718,7 +1733,7 @@ with tab4:
         unita_misura = "% BW" if modalita == "Forza Relativa (% BW)" else "Forza (kg)"
 
         def plot_linea_plotly(col_nome, colore, label):
-            df_plot = df_atleta.dropna(subset=[col_nome]).copy()
+            df_plot = df_atleta.dropna(subset=['Data', col_nome]).copy()
             if not df_plot.empty:
                 y_vals = pd.to_numeric(df_plot[col_nome].astype(str).str.replace(',', '.'), errors='coerce')
                 if modalita == "Forza Relativa (% BW)" and 'Peso Corporeo' in df_plot.columns:
@@ -1802,7 +1817,7 @@ with tab5:
         has_pull = 'Pull-Up 1RM Calcolata' in df_bio.columns or 'Pull-Up 1RM Reale' in df_bio.columns
         if has_pull and 'Concentrica DX' in df_bio.columns:
             col_pull_target = 'Pull-Up 1RM Calcolata' if 'Pull-Up 1RM Calcolata' in df_bio.columns else 'Pull-Up 1RM Reale'
-            df_mvst = df_bio.dropna(subset=[col_pull_target, 'Concentrica DX', 'Concentrica SX']).copy()
+            df_mvst = df_bio.dropna(subset=['Data', col_pull_target, 'Concentrica DX', 'Concentrica SX']).copy()
             if not df_mvst.empty:
                 # --- FIX: Sostituzione virgola con punto prima della conversione float ---
                 s_conc_dx = pd.to_numeric(df_mvst['Concentrica DX'].astype(str).str.replace(',', '.'), errors='coerce')
@@ -1888,7 +1903,7 @@ with tab5:
         st.markdown("<div class='coach-tip'><b>Rapporto Peso/Potenza:</b> Questa visualizzazione a doppio asse è cruciale. Se la linea verde (Forza) sale, ma sale anche la linea rossa (Peso Corporeo), potresti non sentire reali benefici su roccia. Il miglioramento ideale vede la linea verde salire mentre la rossa resta stabile o scende leggermente.</div>", unsafe_allow_html=True)
         col_pull_fz = 'Pull-Up 1RM Calcolata' if 'Pull-Up 1RM Calcolata' in df_bio.columns else ('Pull-Up 1RM Reale' if 'Pull-Up 1RM Reale' in df_bio.columns else None)
         if col_pull_fz:
-            df_fz = df_bio.dropna(subset=[col_pull_fz]).copy()
+            df_fz = df_bio.dropna(subset=['Data', col_pull_fz]).copy()
             if not df_fz.empty:
                 s_fz = pd.to_numeric(df_fz[col_pull_fz].astype(str).str.replace(',', '.'), errors='coerce')
                 fig_fz = make_subplots(specs=[[{"secondary_y": True}]])
@@ -1904,10 +1919,11 @@ with tab5:
                     ),
                     secondary_y=False
                 )
+                df_bw_fz = df_atleta.dropna(subset=['Data', 'Peso Corporeo'])
                 fig_fz.add_trace(
                     go.Scatter(
-                        x=df_atleta['Data'], 
-                        y=df_atleta['Peso Corporeo'], 
+                        x=df_bw_fz['Data'], 
+                        y=df_bw_fz['Peso Corporeo'], 
                         name='Peso Corporeo', 
                         mode='lines', 
                         line=dict(color='#ef4444', width=2, dash='dot')
