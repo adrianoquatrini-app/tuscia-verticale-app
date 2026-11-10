@@ -877,6 +877,7 @@ with col_top_h:
             if not mostra_inattivi and 'Data_dt' in df.columns and 'Atleta' in df.columns:
                 soglia_attivi = pd.Timestamp.now() - pd.DateOffset(years=2)
                 ultimi_test = df.groupby('Atleta')['Data_dt'].max()
+                ultimi_test = pd.to_datetime(ultimi_test, errors='coerce')
                 atleti_attivi = set(ultimi_test[(ultimi_test >= soglia_attivi) | (ultimi_test.isna())].index)
                 lista_filtrata = [a for a in atleti_lista if a in atleti_attivi]
                 if lista_filtrata:
