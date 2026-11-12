@@ -1115,6 +1115,11 @@ with tab1:
                         f"L'avambraccio si affida troppo al sistema anaerobico. È consigliato inserire allenamenti ARC "
                         f"(Aerobic Restoration and Capillarity) e continuità a bassa intensità per migliorare il recupero in via."
                     )
+                st.info(
+                    "💡 **Cosa significa questo dato?** L'Indice Aerobico confronta la tua Resistenza (test 7:3) con la tua Forza Pura (Forza Concentrica). "
+                    "In pratica, ti dice quanta della tua forza massima riesci a usare a lungo in parete senza 'ghisarti'. "
+                    "Più questa percentuale è alta, più il tuo motore aerobico è efficiente sulle vie lunghe!"
+                )
             elif val_cf > 0 or val_conc > 0:
                 if val_cf > 0 and asimmetria_cf > 15:
                     st.warning(
