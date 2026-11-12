@@ -868,15 +868,21 @@ with tab1:
             cols_end_media = [c for c in df_atleta.columns if "endurance" in c.lower() and "30" in c.lower() and "media" in c.lower()]
         if not cols_end_media:
             cols_end_media = ["Endurance 30'' DX - Forza Media", "Endurance 30'' SX - Forza Media"]
+        cols_end_use = cols_end_media
         val_end, data_end = estrai_ultimo_test_valido(cols_end_media)
         if val_end <= 0:
             cols_end_backup = [c for c in df_atleta.columns if "endurance 30''" in c.lower() and "picco" in c.lower()]
             if cols_end_backup:
                 val_end, data_end = estrai_ultimo_test_valido(cols_end_backup)
+                cols_end_use = cols_end_backup
+        endurance_dx, _ = estrai_ultimo_test_valido([c for c in cols_end_use if "dx" in c.lower()])
+        endurance_sx, _ = estrai_ultimo_test_valido([c for c in cols_end_use if "sx" in c.lower()])
 
         # 5. Critical Force 7:3 (picco max tra DX e SX)
         cols_cf = [c for c in df_atleta.columns if "critical force" in c.lower()]
         val_cf, data_cf = estrai_ultimo_test_valido(cols_cf)
+        cf_dx, _ = estrai_ultimo_test_valido([c for c in cols_cf if "dx" in c.lower()])
+        cf_sx, _ = estrai_ultimo_test_valido([c for c in cols_cf if "sx" in c.lower()])
 
         # 6. Trazione 1RM (Pull-Up 1RM Calcolata o Reale)
         val_trazione, data_trazione = estrai_ultimo_test_valido(['Pull-Up 1RM Calcolata', 'Pull-Up 1RM Reale'])
@@ -1010,10 +1016,21 @@ with tab1:
                 st.info("2. Check Motore vs Trasmissione: Dati di Trazione 1RM o Concentrica parziali nello storico per il calcolo comparativo.")
 
             # 3. Check Metabolico (Endurance 30s Forza Media vs Dita Concentrica)
+            if endurance_dx > 0 and endurance_sx > 0:
+                asimmetria_metabolica = abs(endurance_dx - endurance_sx) / max(endurance_dx, endurance_sx) * 100
+            else:
+                asimmetria_metabolica = 0
+
             if perc_end > 0 and perc_conc > 0:
                 ratio_end = (perc_end / perc_conc) * 100
                 d_info_end = f"(Endurance Forza Media: {formatta_data_breve(data_end)} | Concentrica: {formatta_data_breve(data_conc)})"
-                if perc_end < (0.50 * perc_conc):
+                if asimmetria_metabolica > 15:
+                    st.warning(
+                        f"⚠️ **3. Check Metabolico {d_info_end}:** Attenzione: Asimmetria Metabolica del {asimmetria_metabolica:.1f}% "
+                        f"(DX: {endurance_dx:.1f} kg | SX: {endurance_sx:.1f} kg). Il lato migliore esprime un'ottima resistenza, "
+                        f"ma il lato debole cede prematuramente. È richiesto lavoro compensativo unilaterale."
+                    )
+                elif perc_end < (0.50 * perc_conc):
                     st.warning(
                         f"**3. Check Metabolico — Crollo Capacità Lattacida/Endurance {d_info_end}:** A fronte di una buona forza massima delle dita "
                         f"({perc_conc:.1f}% BW), si osserva una caduta marcata della curva nei test di 30 secondi "
@@ -1023,7 +1040,8 @@ with tab1:
                 elif perc_end >= (0.70 * perc_conc):
                     st.success(
                         f"**3. Check Metabolico — Ottima Resistenza Locale {d_info_end}:** L'atleta mantiene un'alta percentuale di espressione di forza "
-                        f"(Endurance 30s (Forza Media) a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica) anche in regime di accumulo lattacido (Test 30s)."
+                        f"(Endurance 30s (Forza Media) a **{perc_end:.1f}% BW**, pari al **{ratio_end:.1f}%** della concentrica) anche in regime di accumulo lattacido (Test 30s). "
+                        f"L'atleta è bilanciato su entrambi gli arti."
                     )
                 else:
                     st.info(
@@ -1031,7 +1049,14 @@ with tab1:
                         f"(pari al **{ratio_end:.1f}%** del massimale concentrico). Capacità anaerobica nella norma, con margini di progressione sulla capillarizzazione locale."
                     )
             elif perc_end > 0:
-                st.info(f"3. Check Metabolico: Endurance 30s (Forza Media) registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {formatta_data_breve(data_end)}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
+                if asimmetria_metabolica > 15:
+                    st.warning(
+                        f"⚠️ **3. Check Metabolico (test: {formatta_data_breve(data_end)}):** Attenzione: Asimmetria Metabolica del {asimmetria_metabolica:.1f}% "
+                        f"(DX: {endurance_dx:.1f} kg | SX: {endurance_sx:.1f} kg). Il lato migliore esprime un'ottima resistenza, "
+                        f"ma il lato debole cede prematuramente. È richiesto lavoro compensativo unilaterale."
+                    )
+                else:
+                    st.info(f"3. Check Metabolico: Endurance 30s (Forza Media) registrata a {perc_end:.1f}% BW ({val_end:.1f} kg, test: {formatta_data_breve(data_end)}). Eseguire il test di Concentrica per calcolare la percentuale di decadimento.")
             else:
                 st.caption("3. Check Metabolico: Nessun test Endurance 30s (Forza Media) registrato nello storico dell'atleta.")
 
@@ -1060,15 +1085,27 @@ with tab1:
                 st.caption("4. Equilibrio Stile di Presa: Nessun dato per Dita Concentrica e Stese nello storico.")
 
             # 5. Check Sistema Aerobico (Critical Force vs Dita Concentrica)
+            if cf_dx > 0 and cf_sx > 0:
+                asimmetria_cf = abs(cf_dx - cf_sx) / max(cf_dx, cf_sx) * 100
+            else:
+                asimmetria_cf = 0
+
             if val_cf > 0 and val_conc > 0:
                 ratio_cf = (val_cf / val_conc) * 100
                 d_info_cf = f"(Critical Force: {formatta_data_breve(data_cf)} | Concentrica: {formatta_data_breve(data_conc)})"
-                if ratio_cf >= 45.0:
+                if asimmetria_cf > 15:
+                    st.warning(
+                        f"⚠️ **5. Check Sistema Aerobico {d_info_cf}:** Attenzione: Asimmetria Metabolica del {asimmetria_cf:.1f}% "
+                        f"(Critical Force 7:3 — DX: {cf_dx:.1f} kg | SX: {cf_sx:.1f} kg). Il lato migliore esprime un'ottima resistenza, "
+                        f"ma il lato debole cede prematuramente. È richiesto lavoro compensativo unilaterale."
+                    )
+                elif ratio_cf >= 45.0:
                     st.success(
-                        f"**5. Check Sistema Aerobico — Efficienza Ossidativa Ottimale {d_info_cf}:** "
+                        f"**5. Check Sistema Aerobico — Efficienza Ossidativa Ottimale / Ottima Resistenza Locale {d_info_cf}:** "
                         f"(Critical Force: {val_cf:.1f} kg | Concentrica: {val_conc:.1f} kg). "
                         f"La Critical Force è al **{ratio_cf:.1f}%** della forza massima. "
-                        f"L'atleta ha un'eccellente capillarizzazione locale e smaltimento del lattato, ideale per le vie lunghe di continuità."
+                        f"L'atleta ha un'eccellente capillarizzazione locale e smaltimento del lattato, ideale per le vie lunghe di continuità. "
+                        f"L'atleta è bilanciato su entrambi gli arti."
                     )
                 else:
                     st.info(
@@ -1079,7 +1116,14 @@ with tab1:
                         f"(Aerobic Restoration and Capillarity) e continuità a bassa intensità per migliorare il recupero in via."
                     )
             elif val_cf > 0 or val_conc > 0:
-                st.info("5. Check Sistema Aerobico: Rilevato solo uno tra i test di Critical Force e Dita Concentrica; eseguire entrambi i test per il calcolo del ratio aerobico.")
+                if val_cf > 0 and asimmetria_cf > 15:
+                    st.warning(
+                        f"⚠️ **5. Check Sistema Aerobico (test: {formatta_data_breve(data_cf)}):** Attenzione: Asimmetria Metabolica del {asimmetria_cf:.1f}% "
+                        f"(Critical Force 7:3 — DX: {cf_dx:.1f} kg | SX: {cf_sx:.1f} kg). Il lato migliore esprime un'ottima resistenza, "
+                        f"ma il lato debole cede prematuramente. È richiesto lavoro compensativo unilaterale."
+                    )
+                else:
+                    st.info("5. Check Sistema Aerobico: Rilevato solo uno tra i test di Critical Force e Dita Concentrica; eseguire entrambi i test per il calcolo del ratio aerobico.")
             else:
                 st.caption("5. Check Sistema Aerobico: Nessun dato per Critical Force e Dita Concentrica nello storico.")
 
