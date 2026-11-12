@@ -1523,6 +1523,9 @@ with tab4:
         if metrica_selezionata == "N° Trazioni":
             unita = ""        # Nessuna unità di misura (è solo un numero)
             formato = ".0f"   # Nessun decimale (es. 7 anziché 7.0)
+        elif metrica_selezionata == "Trazione Isometria 90°":
+            unita = " sec"
+            formato = ".1f"
         elif "(cm)" in metrica_selezionata:
             unita = " cm"
             formato = ".1f"
@@ -1546,6 +1549,10 @@ with tab4:
             unita_plot = unita
             formato_plot = formato
             unita_misura = "N° Trazioni"
+        elif metrica_selezionata == "Trazione Isometria 90°":
+            unita_plot = unita
+            formato_plot = formato
+            unita_misura = "Tempo (sec)"
         elif modalita == "Forza Relativa (% BW)":
             unita_plot = " %"
             formato_plot = ".1f"
@@ -1559,7 +1566,7 @@ with tab4:
             df_plot = df_atleta.dropna(subset=['Data', col_nome]).copy()
             if not df_plot.empty:
                 y_vals = pd.to_numeric(df_plot[col_nome].astype(str).str.replace(',', '.'), errors='coerce')
-                if modalita == "Forza Relativa (% BW)" and metrica_selezionata != "N° Trazioni" and 'Peso Corporeo' in df_plot.columns:
+                if modalita == "Forza Relativa (% BW)" and metrica_selezionata not in ["N° Trazioni", "Trazione Isometria 90°"] and 'Peso Corporeo' in df_plot.columns:
                     pesi = pd.to_numeric(df_plot['Peso Corporeo'].astype(str).str.replace(',', '.'), errors='coerce')
                     y_vals = (y_vals / pesi) * 100
                 if metrica_selezionata == "N° Trazioni":
